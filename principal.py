@@ -4,23 +4,23 @@ Created on Fri Mar 15 10:55:10 2024
 
 @author: Jorge
 """
-
+import matplotlib
+matplotlib.use('TkAgg')
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
-from mpl_toolkits.mplot3d import Axes3D
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-from mpl_toolkits.axes_grid1 import make_axes_locatable
+# from mpl_toolkits.mplot3d import Axes3D
+# from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+# from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.ndimage import gaussian_filter
 from scipy.signal import find_peaks
 import cv2
-import csv
-from scipy.integrate import cumtrapz
+from scipy.integrate import cumulative_trapezoid
 from scipy.linalg import lstsq
 
-from scipy.fft import fft2, fftshift, ifft2, ifftshift
-from skimage.metrics import structural_similarity as ssim
-from skimage.metrics import peak_signal_noise_ratio as psnr
+# from scipy.fft import fft2, fftshift, ifft2, ifftshift
+# from skimage.metrics import structural_similarity as ssim
+# from skimage.metrics import peak_signal_noise_ratio as psnr
 
 class reco_superficie3d:
     def __init__(self,img_rutas,dpixel=1/251.8750):
@@ -31,32 +31,34 @@ class reco_superficie3d:
         self.z=None # --> z es un atributo de nuestro objeto que calcularemos mas tarde, así nos curamos en salud con posibles errores si intentamos ver z antes de calcularlo
         self.dpixel=dpixel
         self.textura=None #lo mismo
+        self.ruido=None
+
+        'aplicamos nuestras cositass'
         self.upload_imagenes()  # Cargar las imágenes inmediatamente
         # self.histogrameando()
         
         'filtros'
         # self.aplicar_ruido()
-        self.aplicar_filtro(ver=True)
+        self.aplicar_filtro(ver=False)
         
         'transformada'
         
-        # self.aplanacion()
+        self.aplanacion()
         # self.ecualizar()
         # self.histogrameando()
         
-    'Filtro gaussiano'    
+    'Filtro gaussiano'
     def ver_ruido(self,image):
         ruido = np.std(image)
         print(f'el nivel de ruido es de: {ruido}')
-        return ruido  
-    
+        return ruido
+
     def aplicar_ver_ruido(self):
         for key, image in self.img_dict.items():
             if key != 'textura':
-                self.nivel_ruido(image)
+                self.ruido(image)
                 
     def aplicar_filtro(self, sigma=1,ver=True):
-        # self.img_dict_filtrado = {}
         
         for key, image in self.img_dict.items():        
             if key != 'textura':
@@ -79,7 +81,9 @@ class reco_superficie3d:
                     canva.show()
         
     'Transformada de fourier'
-    
+
+    def fourier(self):
+        return 
     
     
     
@@ -108,17 +112,17 @@ class reco_superficie3d:
             # self.img_dict[key]=image.astype(np.float32) #Vamos a necesitar coma flotante 32 bits para no perder informacion (cv.im... lee en 8 bits)
             self.img_dict[key]=image
     
-    def obtener_numero_condicion(self, matriz_sist):
+    def obtener_numero_condicion(self, matriz_sist,ver=True):
         numero_condicion = np.linalg.cond(matriz_sist)
         print(f"El número de condición de la matriz es: {numero_condicion}")
-        
-        # Visualización del número de condición en un gráfico
-        plt.figure()
-        plt.title("Número de Condición de la Matriz")
-        plt.bar(['Matriz A'], [numero_condicion], color='blue')
-        plt.ylabel('Número de Condición')
-        plt.yscale('log')  # Escala logarítmica porque el número de condición puede ser muy grande
-        plt.show()
+        if ver==True:
+            # Visualización del número de condición en un gráfico
+            plt.figure()
+            plt.title("Número de Condición de la Matriz")
+            plt.bar(['Matriz A'], [numero_condicion], color='blue')
+            plt.ylabel('Número de Condición')
+            plt.yscale('log')  # Escala logarítmica porque el número de condición puede ser muy grande
+            plt.show()
         
         return numero_condicion
     
@@ -170,7 +174,7 @@ class reco_superficie3d:
         
         image_correct=image-plano
         
-        num_cond = self.obtener_numero_condicion(matriz_sist)
+        num_cond = self.obtener_numero_condicion(matriz_sist,ver=False)
         
         residuo = self.evaluar_ajuste_plano(image, coefi, matriz_sist)
         
@@ -198,9 +202,10 @@ class reco_superficie3d:
         # print(s_dy)
         
         # Acumulación a lo largo de axis=1 --> x / axis=0 -->y
-        z_x=cumtrapz(s_dx*c/d, dx=self.dpixel, axis=1, initial=z0)
-        z_y=cumtrapz(s_dy*c/d, dx=self.dpixel, axis=0, initial=z0)
-
+        # z_x=cumtrapz(s_dx*c/d, dx=self.dpixel, axis=1, initial=z0)
+        # z_y=cumtrapz(s_dy*c/d, dx=self.dpixel, axis=0, initial=z0)
+        z_x = cumulative_trapezoid(s_dx * c / d, dx=self.dpixel, axis=1, initial=z0)
+        z_y = cumulative_trapezoid(s_dy * c / d, dx=self.dpixel, axis=0, initial=z0)
         
         self.z=z_x+z_y #ahora self.z ya no es None
         # print(self.z)
@@ -210,7 +215,7 @@ class reco_superficie3d:
         # print(np.max(self.z))
         # print(np.min(self.z))        
     def plot_superficie(self, ver_textura=True):     
-        plt.ion()
+        # plt.ion()
         
         x,y=np.meshgrid(np.arange(self.z.shape[1]),np.arange(self.z.shape[0]))
         
@@ -376,7 +381,7 @@ class reco_superficie3d:
 
 
 
-img_rutas = {'top': 'SENOS1-T.BMP','bottom': 'SENOS1-B.BMP','left': 'SENOS1-L.BMP','right': 'SENOS1-R.BMP','textura': 'SENOS1-S.BMP'}
+img_rutas = {'top': 'imagenes/SENOS1-T.BMP','bottom': 'imagenes/SENOS1-B.BMP','left': 'imagenes/SENOS1-L.BMP','right': 'imagenes/SENOS1-R.BMP','textura': 'imagenes/SENOS1-S.BMP'}
 # img_rutas = {'top': 'CIRC1_T.BMP','bottom': 'CIRC1_B.BMP','left': 'CIRC1_L.BMP','right': 'CIRC1_R.BMP','textura': 'CIRC1.BMP'}
 
 # img_rutas = {'top': 'RUEDA1_T.BMP','bottom': 'RUEDA1_B.BMP','left': 'RUEDA1_L.BMP','right': 'RUEDA1_R.BMP','textura': 'RUEDA1_S.BMP'}
@@ -384,10 +389,10 @@ img_rutas = {'top': 'SENOS1-T.BMP','bottom': 'SENOS1-B.BMP','left': 'SENOS1-L.BM
 
 mi_superficie = reco_superficie3d(img_rutas)
 
-# mi_superficie.integracion(c=1, d=1, z0=0)
+mi_superficie.integracion(c=1, d=1, z0=0)
 
 
-# mi_superficie.plot_superficie(ver_textura=True)
+mi_superficie.plot_superficie(ver_textura=True)
 
 # mi_superficie.contornear_x(20)
     
