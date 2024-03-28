@@ -18,9 +18,10 @@ import cv2
 from scipy.integrate import cumulative_trapezoid
 from scipy.linalg import lstsq
 
-# from scipy.fft import fft2, fftshift, ifft2, ifftshift
-# from skimage.metrics import structural_similarity as ssim
-# from skimage.metrics import peak_signal_noise_ratio as psnr
+from numpy.fft import fft2, fftshift, ifft2, ifftshift
+from scipy.ndimage import gaussian_filter
+from skimage.metrics import structural_similarity as ssim
+from skimage.metrics import peak_signal_noise_ratio as psnr
 
 class reco_superficie3d:
     def __init__(self,img_rutas,dpixel=1/251.8750):
@@ -39,13 +40,16 @@ class reco_superficie3d:
         
         'filtros'
         # self.aplicar_ruido()
-        self.aplicar_filtro(ver=False)
+        # self.aplicar_filtro(ver=False)
         
         'transformada'
-        
-        self.aplanacion()
+        # self.aplicar_fourier(ver=False)
+        self.ecualizar()
+        # self.aplanacion()
+        # self.aplicar_fourier(ver=True)
+        # self.aplicar_filtro(ver=True)
         # self.ecualizar()
-        # self.histogrameando()
+        self.histogrameando()
         
     'Filtro gaussiano'
     def ver_ruido(self,image):
@@ -81,18 +85,81 @@ class reco_superficie3d:
                     canva.show()
         
     'Transformada de fourier'
+    def aplicar_transformada_fourier(self, image):
+        """
+        Aplica la Transformada de Fourier a la imagen y retorna el espectro de frecuencia desplazado.
+        """
+        f_transform = fft2(image)  # Calcula la FFT de la imagen.
+        f_shift = fftshift(
+            f_transform)  # Desplaza el resultado para que el componente de baja frecuencia esté en el centro.
+        return f_shift
 
-    def fourier(self):
-        return 
-    
-    
-    
-    '''
-    vamos a realizar diferentes metodos de ajustes
-    '''
+    def estimar_radio_filtro(self, f_shift):
+        """
+        Estima el valor del radio para el filtro pasa-bajas en base al espectro de frecuencia.
+        Por ahora, lo estableceremos de forma fija, pero puedes implementar una lógica para determinarlo automáticamente.
+        """
+        # Esta es una estimación simple y deberías ajustarla según las necesidades de tu análisis.
+        # Por ejemplo, podrías encontrar el radio donde la energía cae por debajo de un umbral dado.
+        r = 250
+        return r
 
+    def aplicar_filtro_y_transformada_inversa(self, f_shift, r):
+        """
+        Aplica un filtro pasa-bajas y luego la Transformada de Fourier Inversa.
+        """
+        rows, cols = f_shift.shape
+        crow, ccol = rows // 2, cols // 2
 
-    'metodo de aplanacion mediante minimos cuadrdados'
+        # Crear un filtro pasa-bajas circular.
+        mask = np.zeros((rows, cols), np.uint8)
+        center = [crow, ccol]
+        x, y = np.ogrid[:rows, :cols]
+        mask_area = (x - center[0]) ** 2 + (y - center[1]) ** 2 <= r ** 2
+        mask[mask_area] = 1
+
+        # Aplicar la máscara y la transformada inversa.
+        f_shift_masked = f_shift * mask
+        f_ishift = ifftshift(f_shift_masked)
+        image_back = np.abs(ifft2(f_ishift))
+        return image_back
+
+    def aplicar_fourier(self,ver=True):
+        """
+        Orquesta el procesamiento de Fourier y el filtrado, sobrescribiendo las imágenes en el diccionario.
+        """
+        for key, image in self.img_dict.items():
+            if key != 'textura':  # No procesar la textura
+                f_shift = self.aplicar_transformada_fourier(image)
+                r = self.estimar_radio_filtro(f_shift)
+                image_back = self.aplicar_filtro_y_transformada_inversa(f_shift, r)
+
+                # Calcular y mostrar métricas de calidad de la imagen.
+                ssim_value = ssim(image, image_back, data_range=image.max() - image.min())
+                psnr_value = psnr(image, image_back, data_range=image.max() - image.min())
+                print(f"{key} - SSIM: {ssim_value:.4f}, PSNR: {psnr_value:.4f}")
+
+                if ver ==True:
+                    # Visualizar las imágenes originales y filtradas.
+
+                    plt.figure(figsize=(10, 4))
+                    plt.title(f'{key} - SSIM: {ssim_value:.4f}, PSNR: {psnr_value:}')
+                    plt.subplot(1, 2, 1)
+                    plt.imshow(image, cmap='gray')
+                    plt.title(f'Original: {key}')
+                    plt.axis('off')
+
+                    plt.subplot(1, 2, 2)
+                    plt.imshow(image_back, cmap='gray')
+                    plt.title(f'Filtrada: {key}')
+                    plt.axis('off')
+
+                    plt.tight_layout()
+                    plt.show()
+
+                # Sobrescribir la imagen en el diccionario.
+                self.img_dict[key] = image_back
+
     def upload_imagenes(self): #self es nuestro objeto, instancia, lo llamamos en la funcion ya que img_ruta es un atributo de nuestro objeto!!
         for key,ruta in self.img_ruta.items():  #key:nombre , image: ¡¡ojo!! son values e[0,255]
             
@@ -111,7 +178,8 @@ class reco_superficie3d:
    
             # self.img_dict[key]=image.astype(np.float32) #Vamos a necesitar coma flotante 32 bits para no perder informacion (cv.im... lee en 8 bits)
             self.img_dict[key]=image
-    
+
+    'metodo de aplanacion mediante minimos cuadrdados'
     def obtener_numero_condicion(self, matriz_sist,ver=True):
         numero_condicion = np.linalg.cond(matriz_sist)
         print(f"El número de condición de la matriz es: {numero_condicion}")
@@ -148,36 +216,36 @@ class reco_superficie3d:
         for key, image in self.img_dict.items():
             if key != 'textura':
                 self.img_dict[key]=self.aplanar(image)
-    
+
     def aplanar(self,image):
         '''
         Funcion que elimina las diferencias en las inclinaciones de las imagenes
         recogidas por los detectores BSE
-        
+
         Emplearemos un algoritmo de minimos cuadrados -> deberemos aplanar nuestros arrays par aoperar sobre listas
         '''
         index_y,index_x=np.indices(image.shape) #obtenemos dos matrices con indices cuya shape=imagen.shape
         image_flat=image.flatten() #array.dim=1 (valores planos imagen)
         #ahora construimos matriz cada valor plano con sus indices (index_x,index_y,flat_value)
-        
+
         matriz_sist=np.column_stack((index_x.flatten(),index_y.flatten(),np.ones_like(image_flat)))  #consume mas meemoria pero es mejor --> np.ones((imagen_flat.shape.. size))
         #z=c1*x+c2*y+c0, c0 es np.ones_like ya que son los valores de intensidad aplanados
         # A es una matriz que cada fila representa un punto x,y + un termino intependiente
-        
+
         'realizamos el ajuste por minimos cuadrados'
-        
+
         #mirar el condicionamiento de nuestraas matrices --> de aquí se puede sacar una grafica espectacular
         coefi,_,_,_=lstsq(matriz_sist,image_flat,lapack_driver='gelsy') # _ metodo para desechar variables... solo queremos llstsq[0]--> array.len=3 con coef c1,c2,c0
-        
+
         # z=c1*x+c2*y+c0
         plano=(coefi[0]*index_x+coefi[1]*index_y+coefi[2]).reshape(image.shape)
-        
+
         image_correct=image-plano
-        
+
         num_cond = self.obtener_numero_condicion(matriz_sist,ver=False)
-        
+
         residuo = self.evaluar_ajuste_plano(image, coefi, matriz_sist)
-        
+
         return image_correct
     
     def integracion(self,c,d,z0,eps=1e-5):
@@ -360,32 +428,72 @@ class reco_superficie3d:
         plt.subplots_adjust(left=0.1,right=0.9,top=0.9,bottom=0.1,hspace=0.4,wspace=0.3)
         plt.show()           
     
+    # def ecualizar(self):
+    #     for key, image in self.img_dict.items():
+    #         #imagen en escala gris?
+    #         if image.ndim == 2 or image.shape[2] == 1: #el shape[2] es si a imagen esta en escala RGB
+    #             print(image.dtype)
+    #
+    #             #cambiara si hago esto¿?
+    #             if image.dtype != np.uint8:
+    #                 print(image.dtype)
+    #                 print('algo raro hayyy eh')
+    #
+    #                 image = cv2.normalize(image, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+    #                 image = image.astype(np.uint8)
+    #
+    #             # Ecualizar la imagen
+    #             self.img_dict[key] = cv2.equalizeHist(image)
+    #         else:
+    #             print(f"La imagen {key} no ta en escala de grises y no se puede ecuañlizar.")
+
+    def calcular_contraste(self, image):
+        return np.std(image)
+
+    def calcular_entropia(self, image):
+        hist, _ = np.histogram(image.flatten(), bins=256, range=[0, 256])
+        hist_norm = hist / hist.sum()
+        entropia = -np.sum(
+            hist_norm * np.log2(hist_norm + np.finfo(float).eps))  # np.finfo(float).eps para evitar log(0)
+        return entropia
+
     def ecualizar(self):
         for key, image in self.img_dict.items():
-            #imagen en escala gris?
+            # Verificar si la imagen está en escala de grises
             if image.ndim == 2 or image.shape[2] == 1:
-                print(image.dtype)
-                
-                #cambiara si hago esto¿?
+                print(f"Procesando imagen {key}")
+
+                # Calcular contraste y entropía originales
+                contraste_original = self.calcular_contraste(image)
+                entropia_original = self.calcular_entropia(image)
+
+                # Normalización previa si es necesario
                 if image.dtype != np.uint8:
-                    print(image.dtype)
-                    print('algo raro hayyy eh')
-                    
                     image = cv2.normalize(image, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
                     image = image.astype(np.uint8)
-                
-                # Ecualizar la imagen
-                self.img_dict[key] = cv2.equalizeHist(image)
+
+                # Aplicar CLAHE
+                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+                image_ecualizada = clahe.apply(image)
+
+                # Calcular contraste y entropía después de la ecualización
+                contraste_ecualizado = self.calcular_contraste(image_ecualizada)
+                entropia_ecualizada = self.calcular_entropia(image_ecualizada)
+
+                # Actualizar la imagen en el diccionario
+                self.img_dict[key] = image_ecualizada
+
+                # Imprimir mejoras
+                print(f"Imagen {key} - Mejora de Contraste: {contraste_ecualizado - contraste_original}")
+                print(f"Imagen {key} - Mejora de Entropía: {entropia_ecualizada - entropia_original}")
             else:
-                print(f"La imagen {key} no ta en escala de grises y no se puede ecuañlizar.")
-
-
+                print(f"La imagen {key} no está en escala de grises y no se puede ecualizar.")
 
 img_rutas = {'top': 'imagenes/SENOS1-T.BMP','bottom': 'imagenes/SENOS1-B.BMP','left': 'imagenes/SENOS1-L.BMP','right': 'imagenes/SENOS1-R.BMP','textura': 'imagenes/SENOS1-S.BMP'}
 # img_rutas = {'top': 'CIRC1_T.BMP','bottom': 'CIRC1_B.BMP','left': 'CIRC1_L.BMP','right': 'CIRC1_R.BMP','textura': 'CIRC1.BMP'}
 
-# img_rutas = {'top': 'RUEDA1_T.BMP','bottom': 'RUEDA1_B.BMP','left': 'RUEDA1_L.BMP','right': 'RUEDA1_R.BMP','textura': 'RUEDA1_S.BMP'}
-# img_rutas = {'top': 'RUEDA3_T.BMP','bottom': 'RUEDA3_B.BMP','left': 'RUEDA3_L.BMP','right': 'RUEDA3_R.BMP','textura': 'RUEDA3.BMP'}
+# img_rutas = {'top': 'imagenes/RUEDA1_T.BMP','bottom': 'imagenes/RUEDA1_B.BMP','left': 'imagenes/RUEDA1_L.BMP','right': 'imagenes/RUEDA1_R.BMP','textura': 'imagenes/RUEDA1_S.BMP'}
+# img_rutas = {'top': 'imagenes/RUEDA3_T.BMP','bottom': 'imagenes/RUEDA3_B.BMP','left': 'imagenes/RUEDA3_L.BMP','right': 'imagenes/RUEDA3_R.BMP','textura': 'imagenes/RUEDA3.BMP'}
 
 mi_superficie = reco_superficie3d(img_rutas)
 
