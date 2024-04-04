@@ -489,8 +489,8 @@ class reco_superficie3d:
             else:
                 print(f"La imagen {key} no está en escala de grises y no se puede ecualizar.")
 
-img_rutas = {'top': 'imagenes/SENOS1-T.BMP','bottom': 'imagenes/SENOS1-B.BMP','left': 'imagenes/SENOS1-L.BMP','right': 'imagenes/SENOS1-R.BMP','textura': 'imagenes/SENOS1-S.BMP'}
-# img_rutas = {'top': 'CIRC1_T.BMP','bottom': 'CIRC1_B.BMP','left': 'CIRC1_L.BMP','right': 'CIRC1_R.BMP','textura': 'CIRC1.BMP'}
+# img_rutas = {'top': 'imagenes/SENOS1-T.BMP','bottom': 'imagenes/SENOS1-B.BMP','left': 'imagenes/SENOS1-L.BMP','right': 'imagenes/SENOS1-R.BMP','textura': 'imagenes/SENOS1-S.BMP'}
+img_rutas = {'top': 'imagenes/CIRC1_T.BMP','bottom': 'imagenes/CIRC1_B.BMP','left': 'imagenes/CIRC1_L.BMP','right': 'imagenes/CIRC1_R.BMP','textura': 'imagenes/CIRC1.BMP'}
 
 # img_rutas = {'top': 'imagenes/RUEDA1_T.BMP','bottom': 'imagenes/RUEDA1_B.BMP','left': 'imagenes/RUEDA1_L.BMP','right': 'imagenes/RUEDA1_R.BMP','textura': 'imagenes/RUEDA1_S.BMP'}
 # img_rutas = {'top': 'imagenes/RUEDA3_T.BMP','bottom': 'imagenes/RUEDA3_B.BMP','left': 'imagenes/RUEDA3_L.BMP','right': 'imagenes/RUEDA3_R.BMP','textura': 'imagenes/RUEDA3.BMP'}
@@ -509,9 +509,9 @@ mi_superficie.plot_superficie(ver_textura=True)
             
         
 '''
-Verificación del Proceso de Aplanamiento: Asegúrate de que
- el aplanamiento elimina correctamente las inclinaciones de la i
- magen sin afectar la altura real de las características de interés. --> como hago esto?
+Verificación del Proceso de Aplanamiento: asegurarme de que
+ el aplanamiento elimina correctamente las inclinaciones de la 
+ imagen sin afectar la altura real de las características q me importan de verdad --> como hago esto?
 '''
         
         

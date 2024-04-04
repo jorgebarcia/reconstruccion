@@ -6,13 +6,13 @@ Created on Fri Mar 15 10:55:10 2024
 """
 import cv2
 import matplotlib
-matplotlib.use('TkAgg')
 from scipy.integrate import cumulative_trapezoid
+matplotlib.use('TkAgg')
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from scipy.ndimage import gaussian_filter
-from scipy.signal import find_peaks
+# from scipy.signal import find_peaks
 
 # from scipy.integrate import cumulative_trapezoid
 from scipy.linalg import lstsq
@@ -24,12 +24,12 @@ from skimage.metrics import peak_signal_noise_ratio as psnr
 
 class Cargarimagenes:
     def __init__(self, img_rutas):
-        # self.img_rutas = img_rutas
+        self.img_rutas = img_rutas
         self.img_dict = {}
         self.textura = None
-        self.upload_img(img_rutas)
+        self.upload_img()
 
-    def upload_img(self,img_rutas):  # self es nuestro objeto instancia, lo llamamos
+    def upload_img(self):  # self es nuestro objeto instancia, lo llamamos
         # en la funcion ya que img_ruta es un atributo de # nuestro objeto!!
         '''
         input: diccionario con nuestras rutas
@@ -38,7 +38,7 @@ class Cargarimagenes:
         ya que no tiene por que tener las mismas cualidades que las demas imagenes
         :return:
         '''
-        for [key, ruta] in img_rutas.items():  # iteramos en ruta --> despues de este bucle en el nuevo diccionario
+        for [key, ruta] in self.img_rutas.items():  # iteramos en ruta --> despues de este bucle en el nuevo diccionario
             # habrá imagenes grayscale[0,255]
             # si la textura viene en RGB la cargamos asi
             if key == 'textura':
@@ -55,8 +55,9 @@ class Cargarimagenes:
                 self.img_dict[key] = image
 
 class Procesarimagenes:
-    def __init__(self, datos):
-        self.datos= datos
+    def __init__(self, atributos_cargar):
+        self.img_dict = atributos_cargar.img_dict
+        self.textura = atributos_cargar.textura
 
         'atributos nuevos'
         self.ruido=None
@@ -66,13 +67,13 @@ class Procesarimagenes:
         self.filtro(ver=False)
         self.aplicar_fourier(ver=False)
 
-    def nivel_ruido(self):
+
+    def nivel_ruido(self) -> object:
         '''
         input: Nuestro objeto, mas en concreto el diccionario
         output: el ruido de nuestra imagen
         '''
-        print("Valores Ruido")
-        for key, image in self.datos.img_dict.items():
+        for key, image in self.img_dict.items():
             # if key != 'textura':  --> no hace falta, en esta nueva version no hay textura en img_dict
             self.ruido = np.std(image)
             print(f'El nivel de ruido de {key} es {self.ruido}')
@@ -84,9 +85,9 @@ class Procesarimagenes:
         Sabemos que tiene ruido gaussiano debido a los histogramas
         sigma: nivel de agresividad edl filtro
         '''
-        for key, image in self.datos.img_dict.items():
-            img_no_filtrada = self.datos.img_dict[key]
-            self.datos.img_dict[key] = gaussian_filter(image, sigma=sigma)
+        for key, image in self.img_dict.items():
+            img_no_filtrada = self.img_dict[key]
+            self.img_dict[key] = gaussian_filter(image, sigma=sigma)
             print(f'La imagen {key} se ha filtrado correctamente')
 
             if ver==True:
@@ -97,7 +98,7 @@ class Procesarimagenes:
                 original.axis('off')
 
                 filtrada=canva.add_subplot(122)
-                filtrada.imshow(self.datos.img_dict[key], cmap='gray')
+                filtrada.imshow(self.img_dict[key], cmap='gray')
                 filtrada.set_title(f'Filtrada {key}')
                 filtrada.axis('off')
 
@@ -140,8 +141,7 @@ class Procesarimagenes:
         Funcion que aplica la transformada de fourier sobre self.img_dict
         :param ver: ==True --> vemos la imagen transformada // ==False --> no hay plot
         '''
-        print('Valores Fourier')
-        for key, image in self.datos.img_dict.items():
+        for key, image in self.img_dict.items():
             t_fourier=self.transformada_fourier(image)
             r=self.estimacion_radio(t_fourier)
             # r=self.estimacion_radio()
@@ -170,7 +170,7 @@ class Procesarimagenes:
                 canva.tight_layout()
                 plt.show(block=True)
 
-            self.datos.img_dict[key] = image_trans
+            self.img_dict[key] = image_trans
 
     def calcular_varianzas(self):
         """
@@ -178,7 +178,7 @@ class Procesarimagenes:
         de varianzas correspondiente a cada clave de imagen.
         """
         varianzas = {}
-        for key, image in self.datos.img_dict.items():
+        for key, image in self.img_dict.items():
             varianzas[key] = np.var(image)
         return varianzas
 
@@ -192,26 +192,29 @@ class Procesarimagenes:
         self.varianza_max = max(valores_varianza)
 
     def estimacion_radio(self, image):
-        # solo si varianzas estan definidas
+        # Asegurar que 'varianza_min' y 'varianza_max' están definidos
         if not hasattr(self, 'varianza_min') or not hasattr(self, 'varianza_max'):
             self.ajustar_varianza_min_max()
 
         varianza = np.var(image)
+
+        # Usar 'self.varianza_min' y 'self.varianza_max' ajustados globalmente
         radio_min = 5
         radio_max = 50
 
-        # normalizams la varianza para que esté entre 0 y 1 (lo normal vaya)
+        # Normalizar la varianza para que esté entre 0 y 1
         varianza_norm = (varianza - self.varianza_min) / (self.varianza_max - self.varianza_min)
         varianza_norm = np.clip(varianza_norm, 0, 1)
 
+        # Calcular el radio
         radio = radio_min + (radio_max - radio_min) * varianza_norm
-        print(f"vamos a usar un radio = {radio}")
+        print(radio)
         return radio
 
 class Ecualizacion:
-    def __init__(self,datos):
+    def __init__(self,atributos_procesar):
         "atributos"
-        self.datos = datos
+        self.img_dict=atributos_procesar.img_dict
 
         "funciones"
         self.ecualizar()
@@ -227,8 +230,7 @@ class Ecualizacion:
 
 
     def ecualizar(self):
-        print("Valores ecualizacion")
-        for key, image in self.datos.img_dict.items():
+        for key, image in self.img_dict.items():
             print(f"Procesando imagen {key}")
 
             contraste_antes = self.contraste(image)
@@ -241,7 +243,7 @@ class Ecualizacion:
                 image = cv2.normalize(image, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
                 image = image.astype(np.uint8)
 
-            # aplicamos ecualizacion CLAHE por que es mejor que .ecualhist()
+            # Aplicar CLAHE
             clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
             image_ecualizada = clahe.apply(image)
 
@@ -250,22 +252,22 @@ class Ecualizacion:
             entropia_despues = self.entropia(image_ecualizada)
 
             # Actualizar la imagen en el diccionario
-            self.datos.img_dict[key] = image_ecualizada
+            self.img_dict[key] = image_ecualizada
 
             # Imprimir mejoras
             print(f"Imagen {key} - Mejora de Contraste: {contraste_despues - contraste_antes}")
             print(f"Imagen {key} - Mejora de Entropía: {entropia_despues - entropia_antes}")
 
 class Metodosaplanacion:
-    def __init__(self,datos):
-        self.datos = datos
+    def __init__(self,atributos_ecualizacion):
+        self.img_dict=atributos_ecualizacion.img_dict
 
         "funciones"
         self.aplicar_aplanacion()
 
     def aplicar_aplanacion(self):
-        for key, image in self.datos.img_dict.items():
-            self.datos.img_dict[key]=self.aplanacion(image)
+        for key, image in self.img_dict.items():
+            self.img_dict[key]=self.aplanacion(image)
     def aplanacion(self, image):
         '''
         Aplanacion por ajuste mediante MINIMOS CUADRADOS!!
@@ -333,11 +335,14 @@ class Metodosaplanacion:
 
         return norma_residual
 
-class Reconstruccion:
-    def __init__(self,datos):
-        self.datos = datos
-        self.dpixel = 1/251
 
+
+class Reconstruccion:
+    def __init__(self,atributos_cargar,atributos_ecualizar):
+        self.img_dict = atributos_ecualizar.img_dict
+        # self.img_dict = atributos_aplanar.img_dict
+        self.dpixel = 1/251
+        self.textura = atributos_cargar.textura
         "funciones"
         self.integracion(1,1,0)
         self.plot_superficie(ver_textura=True)
@@ -347,11 +352,11 @@ class Reconstruccion:
         #     self.img_dict[key]=image.astype(np.float32)
         #     print(image.dtype)
 
-        i_a = self.datos.img_dict['right'].astype(np.float32)
+        i_a = self.img_dict['right'].astype(np.float32)
         # print(i_a.dtype)
-        i_b = self.datos.img_dict['left'].astype(np.float32)
-        i_c = self.datos.img_dict['top'].astype(np.float32)
-        i_d = self.datos.img_dict['bottom'].astype(np.float32)
+        i_b = self.img_dict['left'].astype(np.float32)
+        i_c = self.img_dict['top'].astype(np.float32)
+        i_d = self.img_dict['bottom'].astype(np.float32)
 
         # restriingimos la division por cero para uqe no nos salte ningun error
         s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
@@ -382,33 +387,33 @@ class Reconstruccion:
         # primera figura
         sin_textura = plt.figure()
         axis_1 = sin_textura.add_subplot(111, projection='3d')
-        axis_1.plot_surface(x * self.dpixel, y * self.dpixel, self.z, cmap='plasma')
+        axis_1.plot_surface(x * self.dpixel, y * self.dpixel, self.z, cmap='viridis')
 
         axis_1.set_title('Topografia sin textura')
         axis_1.set_xlabel('X (mm)')
         axis_1.set_ylabel('Y (mm)')
         axis_1.set_zlabel('Z (altura en mm)')
 
-        mappable = cm.ScalarMappable(cmap=cm.plasma)
+        mappable = cm.ScalarMappable(cmap=cm.viridis)
         mappable.set_array(self.z)
         plt.colorbar(mappable, ax=axis_1, orientation='vertical', label='Altura (mm)', shrink=0.5, pad=0.2)
 
-        if ver_textura and self.datos.textura is not None:
+        if ver_textura and self.textura is not None:
 
             con_textura = plt.figure()
             axis_2 = con_textura.add_subplot(111, projection='3d')
 
-            if self.datos.textura.shape[0] != self.z.shape[0] or self.datos.textura.shape[1] != self.z.shape[1]:
-                print(f'La forma de la imagen es: {self.datos.textura.shape}')
+            if self.textura.shape[0] != self.z.shape[0] or self.textura.shape[1] != self.z.shape[1]:
+                print(f'La forma de la imagen es: {self.textura.shape}')
                 print(f'La forma de la funcion es: {self.z.shape}')
-                self.textura = cv2.resize(self.datos.textura, (self.z.shape[1], self.z.shape[0]))
+                self.textura = cv2.resize(self.textura, (self.z.shape[1], self.z.shape[0]))
                 print(
                     'Hemos tenido que reajustar la dimension de la textura por que no coincidia, mira a ver que todo ande bien...')
 
             else:
                 None
 
-            axis_2.plot_surface(x * self.dpixel, y * self.dpixel, self.z, facecolors=self.datos.textura / 255.0, shade=False)
+            axis_2.plot_surface(x * self.dpixel, y * self.dpixel, self.z, facecolors=self.textura / 255.0, shade=False)
 
             axis_2.set_title('Topografia con textura')
             axis_2.set_xlabel('X (um)')
@@ -416,166 +421,25 @@ class Reconstruccion:
             axis_2.set_zlabel('Z (altura en um)')
 
             mappable_gray = cm.ScalarMappable(cmap=cm.gray)
-            mappable_gray.set_array(self.datos.textura)
+            mappable_gray.set_array(self.textura)
             plt.colorbar(mappable_gray, ax=axis_2, orientation='vertical', label='Intensidad', shrink=0.5, pad=0.2)
 
             plt.show()
 
-class Contornos:
-    def __init__(self, Reconstruccion):
-        self.z = Reconstruccion.z
-        self.dpixel = Reconstruccion.dpixel
-
-        self.contornear_x(300)
-        # self.muchos_contorno_x(5)
-
-    def contornear_x(self, pos_y):
-        # pos_y = 20  # 20 por ejemplo
-        perfil = self.z[pos_y, :]
-        perfil = gaussian_filter(perfil, sigma=1)
-        ax_x = np.arange(len(perfil)) * self.dpixel
-
-        'Ra'
-        media_perfil = np.mean(perfil)
-
-        Ra = np.mean(np.abs(
-            perfil - media_perfil))  # rugosidad media aritmetica  -> promedio abs desviaciones a lo largo de la muestra
-        Rmax = np.max(perfil)
-        Rmin = np.min(perfil)
-
-        'Rz'
-        pikos, _ = find_peaks(perfil, distance=70, prominence=0.2)
-        minimos, _ = find_peaks(-perfil, distance=95, prominence=0.2)
-
-        pikos_val = perfil[pikos]  # valores nominales pikkos
-        minimos_val = perfil[minimos]  # valores nominales minimos
-
-        # np.argsort(pikos_alturas) --> nos devuelve un array =shape que tiene: [0]- mas bajo....[-1] mas alto
-        # nos movemos en el espacio de indices de pikos_val
-        pikos_5 = pikos[np.argsort(pikos_val)[-5:]]
-        minimos_5 = minimos[np.argsort(minimos_val)[-5:]]
-
-        # pasamos al espacio de indices de perfil a traves del orden hecho
-        Rz = np.sum(np.abs(perfil[pikos_5])) / pikos_5.size + np.sum(
-            np.abs(perfil[minimos_5])) / minimos_5.size  # por si acaso no hubiese 5 picos
-
-        # ploteamos:
-        contorno = plt.figure(figsize=(15, 5))
-        ax = contorno.add_subplot(111)
-
-        ax.plot(ax_x, perfil, '#4682B4', label=f'Contorno en y={pos_y}')
-        ax.plot(ax_x[pikos_5], perfil[pikos_5], "x", color='red', label='Liberadores de Tensiones')
-        ax.plot(ax_x[minimos_5], perfil[minimos_5], "x", color='k', label='Generadores de Tensiones')
-
-        ax.hlines(Rmax, ax_x[0], ax_x[-1], '#FF4500', '--', label='Rmax')
-        ax.hlines(Rmin, ax_x[0], ax_x[-1], '#FF4500', '--', label='Rmin')
-        ax.hlines(media_perfil, ax_x[0], ax_x[-1], '#FFD700', '--', label='Media')
-        ax.hlines(media_perfil + Ra, ax_x[0], ax_x[-1], 'g', '--', label='Desviacion estandar')
-        ax.hlines(media_perfil - Ra, ax_x[0], ax_x[-1], 'g', '--')
-
-        ax.text(ax_x[300], Rmax, f'{Rmax:.2f}', va='center', ha='right', backgroundcolor='w')
-        ax.text(ax_x[300], Rmin, f'{Rmin:.2f}', va='center', ha='right', backgroundcolor='w')
-        ax.text(ax_x[260], np.mean(perfil), f'{np.mean(perfil):.2f}', va='center', ha='right', backgroundcolor='w')
-
-        # corchete Delta Z
-        alto = 0.05
-        ancho = ax_x[-1] - alto * 2
-        ax.plot([ancho, ancho], [media_perfil, media_perfil + Ra], 'k-', lw=1)
-        ax.plot([ancho - alto / 2, ancho + alto / 2], [media_perfil + Ra, media_perfil + Ra], 'k-', lw=1)
-        ax.plot([ancho - alto / 2, ancho + alto / 2], [media_perfil, media_perfil], 'k-', lw=1)
-        ax.text(ancho + alto, media_perfil + Ra / 2, f'Δz={Ra:.2f}', va='center', ha='left', backgroundcolor='w')
-        print('se ha ejecutado no?')
-        ax.legend()
-        plt.show()
-
-        def pilacontornos_x(self, ncontorno):
-            pos_y = np.random.randint(0, self.z.shape[0], ncontorno)
-            pos_y = np.sort(pos_y)
-
-            # contornos_fig=plt.figure(figsize=(20, 10))
-            contornos_fig = plt.figure()
-            ax = contornos_fig.add_subplot(111, projection='3d')
-
-            contorno_x = np.arange(self.z.shape[1]) * self.dpixel
-
-            for i in pos_y:
-                contorno = self.z[i, :]  # rugosidad concreta
-                contorno = gaussian_filter(contorno, sigma=1)
-                contorno_y = np.full_like(contorno_x, i * self.dpixel)
-                ax.plot(contorno_x, contorno_y, contorno, label=f'Perfil en y={i}')
-            ax.set_title('Perfiles de Rugosidad en 3D')
-            ax.set_xlabel('X (mm)')
-            ax.set_ylabel('Y (mm)')
-            ax.set_zlabel('Z (altura en mm)')
-            plt.legend()
-            plt.show()
-
-    def muchos_contorno_x(self, ncontorno):
-        pos_y = np.random.randint(0, self.z.shape[0], ncontorno)
-        pos_y = np.sort(pos_y)
-
-        # contornos_fig=plt.figure(figsize=(20, 10))
-        contornos_fig = plt.figure()
-        ax = contornos_fig.add_subplot(111, projection='3d')
-
-        contorno_x = np.arange(self.z.shape[1]) * self.dpixel
-
-        for i in pos_y:
-            contorno = self.z[i, :]  # rugosidad concreta
-            contorno = gaussian_filter(contorno, sigma=1)
-            contorno_y = np.full_like(contorno_x, i * self.dpixel)
-            ax.plot(contorno_x, contorno_y, contorno, label=f'Perfil en y={i}')
-        ax.set_title('Perfiles de Rugosidad en 3D')
-        ax.set_xlabel('X (mm)')
-        ax.set_ylabel('Y (mm)')
-        ax.set_zlabel('Z (altura en mm)')
-        plt.legend()
-        plt.show()
-
-class Histograma:
-    def __init__(self,datos):
-        self.datos = datos
-        self.histogramear()
-    def histogramear(self):
-
-        histo_canva = plt.figure(figsize=(10, 20))
-
-        for i, (key, image) in enumerate(self.datos.img_dict.items()):
-            # if i<4:
-            if key != 'textura':
-                ax_img = histo_canva.add_subplot(4, 2, 2 * i + 1)
-                imagen = ax_img.imshow(image, cmap='gray')
-                ax_img.set_title(f'imagen {key}')
-                ax_img.axis('off')
-
-                ax_hist = histo_canva.add_subplot(4, 2, 2 * i + 2)
-                hist = ax_hist.hist(image.ravel(), bins=256, range=[1, 256], color='gray', alpha=0.75)
-                ax_hist.set_title(f'histograma imagen {key}')
-            else:
-                break
-
-        # histo_canva.tight_layout()
-        plt.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1, hspace=0.4, wspace=0.3)
-        plt.show()
-
-
-img_rutas = {'top': 'imagenes/SENOS1-T.BMP', 'bottom': 'imagenes/SENOS1-B.BMP', 'left': 'imagenes/SENOS1-L.BMP',
+# img_rutas = {'top': 'imagenes/SENOS1-T.BMP', 'bottom': 'imagenes/SENOS1-B.BMP', 'left': 'imagenes/SENOS1-L.BMP',
              'right': 'imagenes/SENOS1-R.BMP', 'textura': 'imagenes/SENOS1-S.BMP'}
-# img_rutas = {'top': 'imagenes/CIRC1_T.BMP','bottom': 'imagenes/CIRC1_B.BMP','left': 'imagenes/CIRC1_L.BMP','right': 'imagenes/CIRC1_R.BMP','textura': 'imagenes/CIRC1.BMP'}
 
-# img_rutas = {'top': 'imagenes/RUEDA1_T.BMP','bottom': 'imagenes/RUEDA1_B.BMP','left': 'imagenes/RUEDA1_L.BMP','right': 'imagenes/RUEDA1_R.BMP','textura': 'imagenes/RUEDA1_S.BMP'}
+# img_rutas = {'top': 'CIRC1_T.BMP','bottom': 'CIRC1_B.BMP','left': 'CIRC1_L.BMP','right': 'CIRC1_R.BMP','textura': 'CIRC1.BMP'}
+
+img_rutas = {'top': 'imagenes/RUEDA1_T.BMP','bottom': 'imagenes/RUEDA1_B.BMP','left': 'imagenes/RUEDA1_L.BMP','right': 'imagenes/RUEDA1_R.BMP','textura': 'imagenes/RUEDA1_S.BMP'}
 # img_rutas = {'top': 'imagenes/RUEDA3_T.BMP','bottom': 'imagenes/RUEDA3_B.BMP','left': 'imagenes/RUEDA3_L.BMP','right': 'imagenes/RUEDA3_R.BMP','textura': 'imagenes/RUEDA3.BMP'}
 
 
 # plt.ion()
-
 cargar = Cargarimagenes(img_rutas)
-histograma = Histograma(cargar)
 procesar = Procesarimagenes(cargar)
-ecualizar = Ecualizacion(cargar)
-histograma = Histograma(cargar)
-# aplanar = Metodosaplanacion(cargar)
 
-reconstruir = Reconstruccion(cargar)
-contornear = Contornos(reconstruir)
-
+ecualizar = Ecualizacion(procesar)
+# ecualizar = Reconstruccion(cargar)
+# aplanar = Metodosaplanacion(ecualizar)
+integrar_y_plotear = Reconstruccion(cargar,ecualizar)
