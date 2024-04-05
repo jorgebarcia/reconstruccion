@@ -49,27 +49,6 @@ class Procesarimagenes:
     def __init__(self,img_dict):
         self.img_dict = img_dict
 
-        'atributos nuevos'
-        # self.ruido=None
-
-        'aplicamos funciones'
-        # self.nivel_ruido()
-        # self.filtro(ver=False)
-        # self.aplicar_fourier(ver=False)
-
-    # def nivel_ruido(self):
-    #     '''
-    #     input: Nuestro objeto, mas en concreto el diccionario
-    #     output: el ruido de nuestra imagen
-    #     '''
-    #     print(self.datos.img_dict)
-    #     result_ruido={}
-    #     for key, image in self.datos.img_dict.items():
-    #         print('uno')
-    #         ruido = np.std(image)
-    #         print('si se ejecuta')
-    #         result_ruido[key] = ruido
-    #     return result_ruido
     def nivel_ruido(self):
         print("Comenzando cálculo de nivel de ruido...")
         result_ruido = {}
@@ -83,31 +62,22 @@ class Procesarimagenes:
                 print(f"El nivel de ruido para {key} es: {ruido}")
         return result_ruido
 
-    def filtro(self, sigma = 1, ver = True):
+    def filtro(self, sigma=1, ver=True):
         '''
         Funcion que aplica un filtro gaussiano a nuestras imagenes
         Sabemos que tiene ruido gaussiano debido a los histogramas
         sigma: nivel de agresividad edl filtro
         '''
+        img_originales = {}
+        # self.img_filtrada = {}
+
         for key, image in self.img_dict.items():
-            img_no_filtrada = self.img_dict[key]
+            img_originales[key]= self.img_dict[key]
             self.img_dict[key] = gaussian_filter(image, sigma=sigma)
             print(f'La imagen {key} se ha filtrado correctamente')
 
-            if ver==True:
-                canva=plt.figure(figsize=(8,3))
-                original=canva.add_subplot(121)
-                original.imshow(img_no_filtrada, cmap ='gray')
-                original.set_title(f'Original {key}')
-                original.axis('off')
+        return img_originales
 
-                filtrada=canva.add_subplot(122)
-                filtrada.imshow(self.img_dict[key], cmap='gray')
-                filtrada.set_title(f'Filtrada {key}')
-                filtrada.axis('off')
-
-                canva.tight_layout()
-                plt.show(block=True)
 
     # def estimacion_radio(self):
     #     '''
@@ -361,10 +331,11 @@ class Metodosaplanacion:
         return norma_residual
 
 class Reconstruccion:
-    def __init__(self,img_dict):
+    def __init__(self,img_dict,textura):
         self.img_dict = img_dict
         self.dpixel = 1/251
         self.z=None
+        self.textura = textura
 
         "funciones"
         # self.integracion(1,1,0)
@@ -402,83 +373,43 @@ class Reconstruccion:
         # print(np.max(self.z))
         # print(np.min(self.z))
 
-    def plot_superficie(self, figure: Figure, ver_textura=True):
+    def plot_superficie(self,figure,ver_textura):
         x, y = np.meshgrid(np.arange(self.z.shape[1]), np.arange(self.z.shape[0]))
 
-        # Configuramos los ejes para la figura sin textura
+        # primera figura
+        # sin_textura = plt.figure()
         axis_1 = figure.add_subplot(111, projection='3d')
-        surf = axis_1.plot_surface(x * self.dpixel, y * self.dpixel, self.z, cmap='plasma')
-        axis_1.set_title('Topografia sin textura')
+        # axis_1.plot_surface(x * self.dpixel, y * self.dpixel, self.z, cmap='plasma')
+
+        # axis_1.set_title('Topografia sin textura')
         axis_1.set_xlabel('X (mm)')
         axis_1.set_ylabel('Y (mm)')
         axis_1.set_zlabel('Z (altura en mm)')
 
-        # Agregamos una barra de color para la figura sin textura
-        mappable = cm.ScalarMappable(cmap=cm.plasma)
-        mappable.set_array(self.z)
-        figure.colorbar(mappable, ax=axis_1, orientation='vertical', label='Altura (mm)', shrink=0.5, pad=0.2)
-
-        # Configuramos los ejes para la figura con textura si es necesario
-        if ver_textura and hasattr(self, 'textura') and self.textura is not None:
-            # Aseguramos que la textura tenga las dimensiones correctas
+        if ver_textura and self.textura is not None:
             if self.textura.shape[0] != self.z.shape[0] or self.textura.shape[1] != self.z.shape[1]:
+                # print(f'La forma de la imagen es: {self.textura.shape}')
+                # print(f'La forma de la funcion es: {self.z.shape}')
                 self.textura = cv2.resize(self.textura, (self.z.shape[1], self.z.shape[0]))
+                # print(
+                #     'Hemos tenido que reajustar la dimension de la textura por que no coincidia, mira a ver que todo ande bien...')
 
-            # Actualizamos la superficie existente con la textura
-            surf.remove()  # Quitamos la superficie sin textura
             axis_1.plot_surface(x * self.dpixel, y * self.dpixel, self.z, facecolors=self.textura / 255.0, shade=False)
-            axis_1.set_title('Topografia con textura')
 
-            # Agregamos una barra de color para la figura con textura
+            axis_1.set_title('Topografia con textura')
             mappable_gray = cm.ScalarMappable(cmap=cm.gray)
             mappable_gray.set_array(self.textura)
             figure.colorbar(mappable_gray, ax=axis_1, orientation='vertical', label='Intensidad', shrink=0.5, pad=0.2)
-    # def plot_superficie(self, ver_textura=True):
-    #     # plt.ion()
-    #
-    #     x, y = np.meshgrid(np.arange(self.z.shape[1]), np.arange(self.z.shape[0]))
-    #
-    #     # primera figura
-    #     sin_textura = plt.figure()
-    #     axis_1 = sin_textura.add_subplot(111, projection='3d')
-    #     axis_1.plot_surface(x * self.dpixel, y * self.dpixel, self.z, cmap='plasma')
-    #
-    #     axis_1.set_title('Topografia sin textura')
-    #     axis_1.set_xlabel('X (mm)')
-    #     axis_1.set_ylabel('Y (mm)')
-    #     axis_1.set_zlabel('Z (altura en mm)')
-    #
-    #     mappable = cm.ScalarMappable(cmap=cm.plasma)
-    #     mappable.set_array(self.z)
-    #     plt.colorbar(mappable, ax=axis_1, orientation='vertical', label='Altura (mm)', shrink=0.5, pad=0.2)
-    #
-    #     if ver_textura and self.textura is not None:
-    #
-    #         con_textura = plt.figure()
-    #         axis_2 = con_textura.add_subplot(111, projection='3d')
-    #
-    #         if self.textura.shape[0] != self.z.shape[0] or self.textura.shape[1] != self.z.shape[1]:
-    #             print(f'La forma de la imagen es: {self.textura.shape}')
-    #             print(f'La forma de la funcion es: {self.z.shape}')
-    #             self.textura = cv2.resize(self.textura, (self.z.shape[1], self.z.shape[0]))
-    #             print(
-    #                 'Hemos tenido que reajustar la dimension de la textura por que no coincidia, mira a ver que todo ande bien...')
-    #
-    #         else:
-    #             None
-    #
-    #         axis_2.plot_surface(x * self.dpixel, y * self.dpixel, self.z, facecolors=self.textura / 255.0, shade=False)
-    #
-    #         axis_2.set_title('Topografia con textura')
-    #         axis_2.set_xlabel('X (um)')
-    #         axis_2.set_ylabel('Y (um)')
-    #         axis_2.set_zlabel('Z (altura en um)')
-    #
-    #         mappable_gray = cm.ScalarMappable(cmap=cm.gray)
-    #         mappable_gray.set_array(self.textura)
-    #         plt.colorbar(mappable_gray, ax=axis_2, orientation='vertical', label='Intensidad', shrink=0.5, pad=0.2)
-    #
-    #         plt.show()
+
+
+
+        else:
+            axis_1.plot_surface(x * self.dpixel, y * self.dpixel, self.z, cmap='plasma')
+            axis_1.set_title('Topografia sin textura')
+            mappable = cm.ScalarMappable(cmap=cm.plasma)
+            mappable.set_array(self.z)
+            figure.colorbar(mappable, ax=axis_1, orientation='vertical', label='Altura (mm)', shrink=0.5, pad=0.2)
+        figure.tight_layout()
 
 class Contornos:
     def __init__(self, Reconstruccion):

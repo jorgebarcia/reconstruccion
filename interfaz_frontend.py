@@ -1,12 +1,15 @@
 import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QPushButton, QGridLayout, QLabel,
-                             QWidget, QFileDialog, QGroupBox, QSpacerItem, QSizePolicy, QMessageBox, QDialog,QVBoxLayout)
+                             QWidget, QComboBox, QFileDialog, QGroupBox, QSpacerItem, QSizePolicy, QMessageBox, QDialog,QVBoxLayout)
 
-from PyQt5.QtGui import QPixmap
+# import matplotlib
+# matplotlib.use('Qt5Agg')
+
+from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-from soporte_interfaz import Procesarimagenes, Ecualizacion, Metodosaplanacion, Reconstruccion, Histograma
+from interfaz_soporte import Procesarimagenes, Ecualizacion, Metodosaplanacion, Reconstruccion, Histograma
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -17,7 +20,7 @@ class Ventana(QMainWindow):
         super().__init__() #obtenemos las propiedades de qmainWindow que nos crea la ventana con cositas
 
         self.setWindowTitle("Visualizador de Imágenes SEM")
-        self.setGeometry(100, 100, 1400, 700)  # X pos, Y pos, Width, Height
+        self.setGeometry(100, 100, 1000, 500)  # X pos, Y pos, Width, Height
 
         #widget central donde se colocara tooodo
         self.centralWidget = QWidget()
@@ -28,6 +31,10 @@ class Ventana(QMainWindow):
 
         self.img_dict = {'top': None, 'bottom': None, 'left': None, 'right': None
                          }
+
+        #diccionarios de ayuda para la creacion de comparaciones:
+        self.img_original={}
+        self.img_filtrada = {}
 
         "facemos una QGroupBox (cajita) pa los botones de carga"
         '------------------------------------------------------'
@@ -97,6 +104,15 @@ class Ventana(QMainWindow):
         self.boton_filtro = QPushButton("Filtro Gaussiano")
         self.boton_filtro.clicked.connect(self.filtro_gaussiano)
         self.layout_procesamiento.addWidget(self.boton_filtro,1,0)
+
+        #desplegable filtro:
+        self.combox_filtro= QComboBox()
+        opciones_filtro=[0.25,0.5, 0.75, 1, 1.5, 2, 3, 4,5]
+        for opcion in opciones_filtro:
+            self.combox_filtro.addItem(str(opcion),opcion)
+
+        self.layout_procesamiento.addWidget(self.combox_filtro,1,1)
+
         #boton transformada:
 
         self.boton_fourier= QPushButton("Transformada de fourier")
@@ -129,8 +145,47 @@ class Ventana(QMainWindow):
         self.label_resultados = QLabel("Niveles de ruido: \n")
         self.layout_resultados.addWidget(self.label_resultados, 0, 0)
 
-        self.mallado_ventana.addWidget(self.caja_resultados, 0, 2)
 
+        self.mallado_ventana.addWidget(self.caja_resultados, 0, 2) #posicion caja_resultados
+
+        # Desplegable comparacion filtro
+        self.combox_image = QComboBox()
+        self.combox_image.addItem("---Seleccionar una imagen para ver comparacion---")
+        opciones_imagen = ['top', 'bottom', 'left', 'right']
+        self.combox_image.currentIndexChanged.connect(self.ver_filtro)
+        for opcion in opciones_imagen:
+            self.combox_image.addItem(opcion)
+
+        self.layout_resultados.addWidget(self.combox_image, 1, 0)
+
+        self.label_img_original = QLabel()
+        self.label_img_filtrada = QLabel()
+
+        # self.label_txt_original=QLabel("Pre - Filtrado")
+        # self.label_txt_filtrada= QLabel("Post - Filtrado")
+
+        self.label_img_original.setMinimumSize(200, 200)
+        self.label_img_filtrada.setMinimumSize(200, 200)
+
+        self.layout_resultados.addWidget(self.label_img_original, 2, 0)
+        self.layout_resultados.addWidget(self.label_img_filtrada, 2, 1)
+
+        # self.label_txt_original = QLabel("Pre - Filtrado")
+        # self.label_txt_filtrada = QLabel("Post - Filtrado")
+        # self.layout_resultados.addWidget(self.label_txt_original, 3, 0)
+        # self.layout_resultados.addWidget(self.label_txt_filtrada,3,1)
+
+        #boton pa verlo
+        '''
+        self.boton_ver_f=QPushButton("Ver")
+        # self.boton_ver_f.clicked.connect(self.filtro_comparacion)
+        self.layout_resultados.addWidget(self.boton_ver_f,1,1)
+
+        
+
+        self.layout_resultados.addWidget(self.label_img_original,0,0)
+        self.layout_resultados.addWidget(self.label_img_filtrada,0,1)
+        '''
 
         'CAJA HISTOGRAMA'
 
@@ -188,6 +243,16 @@ class Ventana(QMainWindow):
         #necesitamos que ninguna imagen tenga un valor none para poder ejecutar cualquier linea
         return all(value is not None for value in self.img_dict.values()) #vaya protip
 
+    def cv_a_qp(self,image):
+        h, w = image.shape[:2]
+        if len(image.shape) == 3: #pue estara e rgbb
+            image_qt=QImage(image.data, w,h,3*w, QImage.Format_RGB888)
+        else:
+            image_qt = QImage(image.data, w, h, w, QImage.Format_Grayscale8)
+            p = image_qt.scaled(self.label_img_original.width(), self.label_img_original.height(),
+                                        Qt.KeepAspectRatio)
+        return QPixmap.fromImage(p)
+
     def ruido(self):
         if not self.verificar_carga():
             QMessageBox.warning(self,"OYE","TIENES QUE CARGAR TODAS LAS IMAGENES PRIMEROOO")
@@ -204,11 +269,52 @@ class Ventana(QMainWindow):
     def filtro_gaussiano(self):
         if not self.verificar_carga():
             QMessageBox.warning(self,"OYE","TIENES QUE CARGAR TODAS LAS IMAGENES PRIMEROOO")
-        else:
+        try:
+            sigma=self.combox_filtro.currentData()
             procesador = Procesarimagenes(self.img_dict)
-            result=procesador.filtro(ver=False)
+            self.img_original=procesador.filtro(sigma=float(sigma),ver=False)
             text_result= "Se han filtrado correctament las imagenes"
             self.label_resultados.setText(text_result)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Ocurrió un error durante la aplicación del filtro: {e}")
+
+    def ver_filtro(self): #NO ACTUA EN BUCLE!! ACTUA SOBRE EL CURRENT TEXT!!
+        image=self.combox_image.currentText().lower()
+        if image == "---seleccionar una imagen para ver comparacion---":
+            self.label_img_original.clear()
+            self.label_img_filtrada.clear()
+            return
+        if image not in self.img_original:
+            QMessageBox.warning(self, "ADvertencia","No hay ningun filtro aplicado")
+            opcion=self.combox_image.findText("---Seleccionar una imagen para ver comparacion---")
+            self.combox_image.setCurrentText(opcion)
+        try:
+
+            original_np_img = self.img_original[image]
+            filtered_np_img = self.img_dict[image]
+
+            original_pixmap = self.cv_a_qp(original_np_img)
+            filtered_pixmap = self.cv_a_qp(filtered_np_img)
+
+            self.label_img_original.setPixmap(original_pixmap)
+            self.label_img_filtrada.setPixmap(filtered_pixmap)
+
+            self.label_txt_original = QLabel("Pre - Filtrado")
+            self.label_txt_filtrada = QLabel("Post - Filtrado")
+
+            self.label_txt_original.setAlignment(Qt.AlignHCenter)
+            self.label_txt_filtrada.setAlignment(Qt.AlignHCenter)
+
+            self.layout_resultados.addWidget(self.label_txt_original, 3, 0)
+            self.layout_resultados.addWidget(self.label_txt_filtrada, 3, 1)
+
+            # posiblemente no necesites llamar a .repaint si ya estás cambiando el pixmap
+            # self.label_img_original.repaint()
+            # self.label_img_filtrada.repaint()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Ocurrió un error durante el plot de comparacion: {e}")
 
     def fourier(self):
         if not self.verificar_carga():
@@ -290,7 +396,7 @@ class Ventana(QMainWindow):
             QMessageBox.warning(self, "OYE", "TIENES QUE CARGAR TODAS LAS IMAGENES PRIMEROOO")
         else:
             try:
-                reconstructor=Reconstruccion(self.img_dict)
+                reconstructor=Reconstruccion(self.img_dict,self.textura if hasattr(self, 'textura') else None)
                 reconstructor.integracion(1,1,0)
 
                 self.ventana_sin=QDialog(self)
@@ -298,10 +404,10 @@ class Ventana(QMainWindow):
                 canvas_sin=FigureCanvas(Figure(figsize=(10,8)))
                 layout_sin.addWidget(canvas_sin)
 
-                # reconstructor=Reconstruccion(img_dict=self)
                 reconstructor.plot_superficie(canvas_sin.figure,ver_textura=False)
                 self.ventana_sin.setWindowTitle("Superficie Reconstruida")
                 self.ventana_sin.show()
+                # print(self.textura)
 
                 if hasattr(self,'textura') and self.textura is not None:
                     self.ventana_con = QDialog(self)
@@ -315,23 +421,11 @@ class Ventana(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Ocurrió un error al plotear en 3D: {e}")
 
-
-
-
-
-
-
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    # app =  QtWidgets.QApplication(sys.argv)
     mainWin = Ventana()
     mainWin.show()
     sys.exit(app.exec_())
 
 
-# class GestionarFunciones:
-#     def __init__(self,img_dict):
-#         self.img_dict=img_dict
-#
-#     def ruido(self):
-#         procesador = Procesarimagenes(self.img_dict)
-#         return procesador.nivel_ruido()

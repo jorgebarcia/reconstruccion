@@ -574,7 +574,7 @@ histograma = Histograma(cargar)
 procesar = Procesarimagenes(cargar)
 ecualizar = Ecualizacion(cargar)
 histograma = Histograma(cargar)
-aplanar = Metodosaplanacion(cargar)
+# aplanar = Metodosaplanacion(cargar)
 
 reconstruir = Reconstruccion(cargar)
 # contornear = Contornos(reconstruir)
