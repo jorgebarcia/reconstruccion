@@ -1,7 +1,7 @@
 import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QPushButton, QGridLayout, QLabel,
-                             QWidget, QComboBox, QFileDialog, QGroupBox, QSpacerItem, QSizePolicy, QMessageBox, QDialog,QVBoxLayout)
-
+                             QWidget, QComboBox, QFileDialog, QGroupBox, QSpacerItem, QSizePolicy, QMessageBox, QDialog,QVBoxLayout,QTabWidget)
+from PyQt5.QtGui import QPalette, QColor
 # import matplotlib
 # matplotlib.use('Qt5Agg')
 
@@ -20,7 +20,7 @@ class Ventana(QMainWindow):
         super().__init__() #obtenemos las propiedades de qmainWindow que nos crea la ventana con cositas
 
         self.setWindowTitle("Visualizador de Imágenes SEM")
-        self.setGeometry(100, 100, 1000, 500)  # X pos, Y pos, Width, Height
+        self.setGeometry(100, 100, 700, 400)  # X pos, Y pos, Width, Height
 
         #widget central donde se colocara tooodo
         self.centralWidget = QWidget()
@@ -35,6 +35,9 @@ class Ventana(QMainWindow):
         #diccionarios de ayuda para la creacion de comparaciones:
         self.img_original={}
         self.img_filtrada = {}
+
+        self.img_original_f={}
+        self.img_transfor={}
 
         "facemos una QGroupBox (cajita) pa los botones de carga"
         '------------------------------------------------------'
@@ -98,11 +101,13 @@ class Ventana(QMainWindow):
         #boton ruido
         self.boton_ruido = QPushButton("Nivel Ruido")
         self.boton_ruido.clicked.connect(self.ruido)
+        # self.boton_ruido.setFixedSize(*boton_size)
         self.layout_procesamiento.addWidget(self.boton_ruido,0,0)
 
         #boton filtro:
         self.boton_filtro = QPushButton("Filtro Gaussiano")
         self.boton_filtro.clicked.connect(self.filtro_gaussiano)
+        # self.boton_filtro.setFixedSize(*boton_size)
         self.layout_procesamiento.addWidget(self.boton_filtro,1,0)
 
         #desplegable filtro:
@@ -117,6 +122,7 @@ class Ventana(QMainWindow):
 
         self.boton_fourier= QPushButton("Transformada de fourier")
         self.boton_fourier.clicked.connect(self.fourier)
+        # self.boton_fourier.setFixedSize(*boton_size)
         self.layout_procesamiento.addWidget(self.boton_fourier,2,0)
 
         # botton ecualizar
@@ -138,19 +144,41 @@ class Ventana(QMainWindow):
         'CAJA RESULTADOS DE PROCESAMIENTO'
         '-----------------------------------'
 
+        # tabs = QTabWidget()
+        #
+        # # Crear los widgets que irán en cada pestaña
+        # filtro_tab = QWidget()
+        # fourier_tab = QWidget()
+        #
+        # # Agregar widgets a cada pestaña
+        # tabs.addTab(filtro_tab, "Filtro")
+        # tabs.addTab(fourier_tab, "Fourier")
+        #
+        # # Crear layouts para cada conjunto de opciones y agregar los widgets correspondientes
+        # filtro_layout = QVBoxLayout()
+        # # ... Agregar opciones de filtro al filtro_layout ...
+        # filtro_tab.setLayout(filtro_layout)
+        #
+        # fourier_layout = QVBoxLayout()
+        # # ... Agregar opciones de fourier al fourier_layout ...
+        # fourier_tab.setLayout(fourier_layout)
+        #
+        # # Agregar el widget de pestañas al layout principal
+        # self.mallado_ventana.addWidget(tabs, 0, 2)
+
+
         self.caja_resultados = QGroupBox("Resultados del Procesamiento")
         self.layout_resultados = QGridLayout(self.caja_resultados)
 
         # luego actualizamos el texto
-        self.label_resultados = QLabel("Niveles de ruido: \n")
+        self.label_resultados = QLabel("Aquí se mostrán los resultados : \n")
         self.layout_resultados.addWidget(self.label_resultados, 0, 0)
 
-
-        self.mallado_ventana.addWidget(self.caja_resultados, 0, 2) #posicion caja_resultados
+        self.mallado_ventana.addWidget(self.caja_resultados,0, 2,3,1) #posicion caja_resultados -- > se extiende por 3 filas y 1 col
 
         # Desplegable comparacion filtro
         self.combox_image = QComboBox()
-        self.combox_image.addItem("---Seleccionar una imagen para ver comparacion---")
+        self.combox_image.addItem("---FILTRO---Seleccionar una imagen para ver comparacion---")
         opciones_imagen = ['top', 'bottom', 'left', 'right']
         self.combox_image.currentIndexChanged.connect(self.ver_filtro)
         for opcion in opciones_imagen:
@@ -161,31 +189,27 @@ class Ventana(QMainWindow):
         self.label_img_original = QLabel()
         self.label_img_filtrada = QLabel()
 
-        # self.label_txt_original=QLabel("Pre - Filtrado")
-        # self.label_txt_filtrada= QLabel("Post - Filtrado")
-
         self.label_img_original.setMinimumSize(200, 200)
         self.label_img_filtrada.setMinimumSize(200, 200)
 
         self.layout_resultados.addWidget(self.label_img_original, 2, 0)
         self.layout_resultados.addWidget(self.label_img_filtrada, 2, 1)
 
-        # self.label_txt_original = QLabel("Pre - Filtrado")
-        # self.label_txt_filtrada = QLabel("Post - Filtrado")
-        # self.layout_resultados.addWidget(self.label_txt_original, 3, 0)
-        # self.layout_resultados.addWidget(self.label_txt_filtrada,3,1)
+        #desplegable fourier:
+        self.combox_fourier =QComboBox()
+        self.combox_fourier.addItem("---FOURIER---Seleccionar una imagen para ver compacion---")
+        self.combox_fourier.currentIndexChanged.connect(self.ver_fourier)
+        for opcion in opciones_imagen:
+            self.combox_fourier.addItem(opcion)
+        self.layout_resultados.addWidget(self.combox_fourier,5,0)
+        self.label_img_original_f=QLabel()
+        self.label_img_trans=QLabel()
+        self.label_img_original_f.setMinimumSize(200, 200)
+        self.label_img_trans.setMinimumSize(200, 200)
+        self.layout_resultados.addWidget(self.label_img_original_f, 6, 0)
+        self.layout_resultados.addWidget(self.label_img_trans, 6, 1)
 
-        #boton pa verlo
-        '''
-        self.boton_ver_f=QPushButton("Ver")
-        # self.boton_ver_f.clicked.connect(self.filtro_comparacion)
-        self.layout_resultados.addWidget(self.boton_ver_f,1,1)
 
-        
-
-        self.layout_resultados.addWidget(self.label_img_original,0,0)
-        self.layout_resultados.addWidget(self.label_img_filtrada,0,1)
-        '''
 
         'CAJA HISTOGRAMA'
 
@@ -200,7 +224,7 @@ class Ventana(QMainWindow):
         #boton hist
         self.boton_histograma = QPushButton("Ver Histograma")
         self.boton_histograma.clicked.connect(self.histograma)
-        self.layout_histograma.addWidget(self.boton_histograma, 0, 0)
+        self.layout_histograma.addWidget(self.boton_histograma,1, 0)
 
         'CAJA INTEGRACION Y PLOT'
         self.caja_reco = QGroupBox("reconstruccion")
@@ -212,15 +236,11 @@ class Ventana(QMainWindow):
 
         self.mallado_ventana.addWidget(self.caja_reco,1,1)
 
-        #boton integrar
-        # self.boton_intg= QPushButton("Integrar")
-        # self.boton_intg.clicked.connect(self.integrar)
-        # self.layout_reco.addWidget(self.boton_intg,0,0)
-
         #boton plotear:
         self.boton_plotear=QPushButton("plotear")
         self.boton_plotear.clicked.connect(self.plotear)
         self.layout_reco.addWidget(self.boton_plotear,1,0)
+
 
     def upload_images(self, image_type):
         try:
@@ -244,14 +264,20 @@ class Ventana(QMainWindow):
         return all(value is not None for value in self.img_dict.values()) #vaya protip
 
     def cv_a_qp(self,image):
+        # print("1")
         h, w = image.shape[:2]
+        # print("2")
         if len(image.shape) == 3: #pue estara e rgbb
             image_qt=QImage(image.data, w,h,3*w, QImage.Format_RGB888)
+            print('ns pq pero tas en rgb')
         else:
+            # print('3')
             image_qt = QImage(image.data, w, h, w, QImage.Format_Grayscale8)
-            p = image_qt.scaled(self.label_img_original.width(), self.label_img_original.height(),
+            # print('4')
+            image_qt = image_qt.scaled(self.label_img_original.width(), self.label_img_original.height(),
                                         Qt.KeepAspectRatio)
-        return QPixmap.fromImage(p)
+            # print("5")
+        return QPixmap.fromImage(image_qt)
 
     def ruido(self):
         if not self.verificar_carga():
@@ -272,7 +298,7 @@ class Ventana(QMainWindow):
         try:
             sigma=self.combox_filtro.currentData()
             procesador = Procesarimagenes(self.img_dict)
-            self.img_original=procesador.filtro(sigma=float(sigma),ver=False)
+            self.img_original,self.img_filtrada=procesador.filtro(sigma=float(sigma))
             text_result= "Se han filtrado correctament las imagenes"
             self.label_resultados.setText(text_result)
 
@@ -280,19 +306,25 @@ class Ventana(QMainWindow):
             QMessageBox.critical(self, "Error", f"Ocurrió un error durante la aplicación del filtro: {e}")
 
     def ver_filtro(self): #NO ACTUA EN BUCLE!! ACTUA SOBRE EL CURRENT TEXT!!
-        image=self.combox_image.currentText().lower()
-        if image == "---seleccionar una imagen para ver comparacion---":
+        # ref=self.combox_image.currentText().lower()
+        ref = self.combox_image.currentText()
+        if ref == "---FILTRO---Seleccionar una imagen para ver comparacion---":
             self.label_img_original.clear()
             self.label_img_filtrada.clear()
+            self.label_txt_original.clear()
+            self.label_txt_filtrada.clear()
             return
-        if image not in self.img_original:
-            QMessageBox.warning(self, "ADvertencia","No hay ningun filtro aplicado")
-            opcion=self.combox_image.findText("---Seleccionar una imagen para ver comparacion---")
-            self.combox_image.setCurrentText(opcion)
+        if ref.lower() not in self.img_original:
+            QMessageBox.warning(self, "Advertencia","No hay ningun filtro aplicado")
+            # print('1')
+            self.combox_image.currentIndexChanged.disconnect()
+            self.combox_image.setCurrentIndex(0)
+            self.combox_image.currentIndexChanged.connect(self.ver_filtro)
+            # print('2')
+            return
         try:
-
-            original_np_img = self.img_original[image]
-            filtered_np_img = self.img_dict[image]
+            original_np_img = self.img_original[ref]
+            filtered_np_img = self.img_filtrada[ref]
 
             original_pixmap = self.cv_a_qp(original_np_img)
             filtered_pixmap = self.cv_a_qp(filtered_np_img)
@@ -308,11 +340,10 @@ class Ventana(QMainWindow):
 
             self.layout_resultados.addWidget(self.label_txt_original, 3, 0)
             self.layout_resultados.addWidget(self.label_txt_filtrada, 3, 1)
-
-            # posiblemente no necesites llamar a .repaint si ya estás cambiando el pixmap
             # self.label_img_original.repaint()
             # self.label_img_filtrada.repaint()
-
+            # print(self.img_original[ref])
+            # print(self.img_original[ref].shape)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Ocurrió un error durante el plot de comparacion: {e}")
 
@@ -321,7 +352,7 @@ class Ventana(QMainWindow):
             QMessageBox.warning(self,"OYE","TIENES QUE CARGAR TODAS LAS IMAGENES PRIMEROOO")
         else:
             procesador = Procesarimagenes(self.img_dict)
-            ssim_dict,psnr_dict,r=procesador.aplicar_fourier(ver=False)
+            ssim_dict,psnr_dict,r,self.img_original_f,self.img_transfor=procesador.aplicar_fourier()
             text_result = "Resultados de Fourier:\n"
             for key in self.img_dict.keys():
                 text_result += (f"Imagen {key} - "
@@ -329,6 +360,46 @@ class Ventana(QMainWindow):
                                 f"PSNR: {psnr_dict[key]:.4f}, "
                                 f"Radio: {r}\n")
             self.label_resultados.setText(text_result)
+    def ver_fourier(self):
+        ref = self.combox_fourier.currentText()
+        if ref == "---FOURIER---Seleccionar una imagen para ver comparacion---":
+            self.label_img_original_f.clear()
+            self.label_img_trans.clear()
+            self.label_txt_original_f.clear()
+            self.label_txt_trans.clear()
+            return
+        if ref.lower() not in self.img_original_f:
+            QMessageBox.warning(self, "ADvertencia", "No hay ninguna transformada aplicada")
+            self.combox_fourier.currentIndexChanged.disconnect()
+            self.combox_fourier.setCurrentIndex(0)
+            self.combox_fourier.currentIndexChanged.connect(self.ver_fourier)
+            return
+        try:
+            print("original")
+            # print("1")
+            original_f_np = self.img_original_f[ref]
+            # print("1.1")
+            trans_np = self.img_transfor[ref]
+            # print("2")
+            original_f_pixmap = self.cv_a_qp(original_f_np)
+            trans_pixmap = self.cv_a_qp(trans_np)
+            # print("3")
+            self.label_img_original_f.setPixmap(original_f_pixmap)
+            self.label_img_trans.setPixmap(trans_pixmap)
+            # print("4")
+            # self.label_img_original.setPixmap(self.img_original_f[image])
+            # self.label_img_filtrada.setPixmap(self.img_dict[image])
+            # print("5")
+            self.label_txt_original_f = QLabel("Pre - Transformada")
+            self.label_txt_trans = QLabel("Post - Trasformada")
+            # print("6")
+            self.label_txt_original_f.setAlignment(Qt.AlignHCenter)
+            self.label_txt_trans.setAlignment(Qt.AlignHCenter)
+            # print("7")
+            self.layout_resultados.addWidget(self.label_txt_original_f, 7, 0)
+            self.layout_resultados.addWidget(self.label_txt_trans, 7, 1)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Ocurrió un error durante el plot de comparacion: {e}")
 
     def ecualizando(self):
         if not self.verificar_carga():
@@ -379,18 +450,6 @@ class Ventana(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Ocurrió un error al mostrar el histograma: {e}")
 
-    # def integrar(self):
-    #     if not self.verificar_carga():
-    #         QMessageBox.warning(self,"OYE","TIENES QUE CARGAR TODAS LAS IMAGENES PRIMEROOO")
-    #     else:
-    #         try:
-    #             integrar=Reconstruccion(img_dict=self.img_dict)
-    #             integrar.integracion(1,1,1)
-    #             text_result="Se ha reconstruido correctamente"
-    #             self.label_reco.setText(text_result)
-    #         except Exception as e:
-    #             QMessageBox.critical(self, "Error", f"Ocurrió un error al integrar: {e}")
-
     def plotear(self):
         if not self.verificar_carga():
             QMessageBox.warning(self, "OYE", "TIENES QUE CARGAR TODAS LAS IMAGENES PRIMEROOO")
@@ -421,11 +480,110 @@ class Ventana(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Ocurrió un error al plotear en 3D: {e}")
 
+
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     # app =  QtWidgets.QApplication(sys.argv)
+
+    # estilo_global = """
+    # QWidget {
+    #     font-size: 14px;
+    #     color: #33333;
+    #     background-color: #FFFFFF;
+    # }
+    #
+    # QPushButton {
+    #     background-color: #F0F0F0;
+    #     border: 1px solid #BBBBBB;
+    #     padding: 5px;
+    #     border-radius: 4px;
+    #     min-height: 20px;
+    # }
+    #
+    # QPushButton:hover {
+    #     background-color: #D5D5D5;
+    # }
+    #
+    # QPushButton:pressed {
+    #     background-color: #CCCCCC;
+    # }
+    #
+    # QGroupBox {
+    #     border: 1px solid #BBBBBB;
+    #     border-radius: 4px;
+    #     margin-top: 20px;
+    # }
+    #
+    # QGroupBox::title {
+    #     subcontrol-origin: margin;
+    #     subcontrol-position: top center;
+    #     padding-left: 10px;
+    #     padding-right: 10px;
+    #     padding-top: 10px;
+    # }
+    #
+    # QLineEdit, QComboBox, QTextEdit, QSpinBox, QDoubleSpinBox {
+    #     border: 1px solid #BBBBBB;
+    #     border-radius: 4px;
+    #     padding: 2px;
+    #     background-color: #EFEFEF;
+    #     min-height: 20px;
+    # }
+    #
+    # QLabel, QCheckBox {
+    #     margin: 2px;
+    # }
+    #
+    # QSlider::groove:horizontal {
+    #     border: 1px solid #BBBBBB;
+    #     height: 8px;
+    #     background: #F0F0F0;
+    #     margin: 2px 0;
+    # }
+    #
+    # QSlider::handle:horizontal {
+    #     background: #D5D5D5;
+    #     border: 1px solid #BBBBBB;
+    #     width: 18px;
+    #     margin: -2px 0;
+    #     border-radius: 4px;
+    # }
+    #
+    # QSlider::add-page:horizontal {
+    #     background: #BBBBBB;
+    # }
+    #
+    # QSlider::sub-page:horizontal {
+    #     background: #D5D5D5;
+    # }
+    # """
+    # app.setStyleSheet(estilo_global)
+    app.setStyle('Fusion')
+    # app.setStyle('Windows')
+
+    palette = QPalette()
+    palette.setColor(QPalette.Window, QColor(53, 53, 53))
+    palette.setColor(QPalette.WindowText, Qt.white)
+    palette.setColor(QPalette.Base, QColor(15, 15, 15))
+    palette.setColor(QPalette.AlternateBase, QColor(53, 53, 53))
+    palette.setColor(QPalette.ToolTipBase, Qt.white)
+    palette.setColor(QPalette.ToolTipText, Qt.white)
+    palette.setColor(QPalette.Text, Qt.white)
+    palette.setColor(QPalette.Button, QColor(53, 53, 53))
+    palette.setColor(QPalette.ButtonText, Qt.white)
+    palette.setColor(QPalette.BrightText, Qt.red)
+    palette.setColor(QPalette.Link, QColor(42, 130, 218))
+    palette.setColor(QPalette.Highlight, QColor(42, 130, 218))
+    palette.setColor(QPalette.HighlightedText, Qt.black)
+
+    app.setPalette(palette)
+
     mainWin = Ventana()
     mainWin.show()
     sys.exit(app.exec_())
 
+app = QApplication([])
+print(QApplication.style().metaObject().className())
+print(QApplication.availableStyles())
 

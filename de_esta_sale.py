@@ -58,9 +58,9 @@ class Procesarimagenes:
         self.ruido=None
 
         'aplicamos funciones'
-        # self.nivel_ruido()
-        # self.filtro(ver=False)
-        # self.aplicar_fourier(ver=False)
+        self.nivel_ruido()
+        self.filtro(ver=False)
+        self.aplicar_fourier(ver=False)
 
     def nivel_ruido(self):
         '''
@@ -577,5 +577,5 @@ histograma = Histograma(cargar)
 # aplanar = Metodosaplanacion(cargar)
 
 reconstruir = Reconstruccion(cargar)
-# contornear = Contornos(reconstruir)
+contornear = Contornos(reconstruir)
 

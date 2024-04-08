@@ -62,32 +62,23 @@ class Procesarimagenes:
                 print(f"El nivel de ruido para {key} es: {ruido}")
         return result_ruido
 
-    def filtro(self, sigma=1, ver=True):
+    def filtro(self, sigma=1):
         '''
         Funcion que aplica un filtro gaussiano a nuestras imagenes
         Sabemos que tiene ruido gaussiano debido a los histogramas
         sigma: nivel de agresividad edl filtro
         '''
-        img_originales = {}
-        # self.img_filtrada = {}
+        img_original = {}
+        img_filtrada = {}
 
         for key, image in self.img_dict.items():
-            img_originales[key]= self.img_dict[key]
+            img_original[key]= self.img_dict[key].copy()
             self.img_dict[key] = gaussian_filter(image, sigma=sigma)
-            print(f'La imagen {key} se ha filtrado correctamente')
+            img_filtrada[key]= self.img_dict[key].copy()
+            # print(f'La imagen {key} se ha filtrado correctamente')
 
-        return img_originales
+        return img_original, img_filtrada
 
-
-    # def estimacion_radio(self):
-    #     '''
-    #     vamos a estimar el valor del el radio para la transofrmada de fourier en
-    #     funcion del contenido de la imagen, ya que en imagenes SEM nos interesa
-    #     preservar los detalles y eliminar ruido
-    #     :return:
-    #     '''
-    #     r=70
-    #     return r
 
     def transformada_fourier(self,image):
         t_fourier=fft2(image) # calcualo de la transformada rapida de fourier
@@ -110,7 +101,7 @@ class Procesarimagenes:
         inv_t_fourier=ifftshift(t_fourier_mask) # se invierte el espectro
         img_trans=np.abs(ifft2(inv_t_fourier))  #nos aseguramos que sea una imagen REAL
         return img_trans
-    def aplicar_fourier(self,ver=True):
+    def aplicar_fourier(self):
         '''
         Funcion que aplica la transformada de fourier sobre self.img_dict
         :param ver: ==True --> vemos la imagen transformada // ==False --> no hay plot
@@ -118,42 +109,32 @@ class Procesarimagenes:
         print('Valores Fourier')
         ssim_dict = {}
         psnr_dict = {}
+        img_originales={}
+        img_transfor={}
         for key, image in self.img_dict.items():
-
+            img_originales[key]=self.img_dict[key].copy()
             t_fourier=self.transformada_fourier(image)
             r=self.estimacion_radio(t_fourier)
-            # r=self.estimacion_radio()
-            image_trans = self.filtro_trans_inversa(t_fourier,r)
+            self.img_dict[key] = self.filtro_trans_inversa(t_fourier,r)
+            # print('fallo aqui joder')
+            img_transfor[key]=self.img_dict[key].copy()
+
+            # Normalizamos nuestra imagen a que si no con el pixmap de Qt solo se vería ruido (normal vaya)
+            img_transfor[key] = np.abs(img_transfor[key])  # obtienemos la magnitud
+            img_transfor[key]= np.log1p(img_transfor[key])  # escala logaritmica
+            img_transfor[key] -= img_transfor[key].min()  # mínimo sea 0
+            img_transfor[key] /= img_transfor[key].max()  # normalizamos
+            img_transfor[key] = (img_transfor[key] * 255).astype(np.uint8)  # escalamos los valores entre 0 y 255
 
             #metricas de calidad de la imagen
-            ssim_val=ssim(image, image_trans, data_range = image.max() - image.min())
-            psnr_val=psnr(image, image_trans, data_range = image.max() - image.min())
-            print(f"{key} - SSIM: {ssim_val:.4f}, PSNR: {psnr_val:.4f}")
+            ssim_val=ssim(image, self.img_dict[key], data_range = image.max() - image.min())
+            psnr_val=psnr(image, self.img_dict[key], data_range = image.max() - image.min())
+            # print(f"{key} - SSIM: {ssim_val:.4f}, PSNR: {psnr_val:.4f}")
 
             ssim_dict[key]=ssim_val
             psnr_dict[key]=psnr_val
 
-            if ver == True:
-
-                canva = plt.figure(figsize=(8, 3))
-                canva.suptitle(f"{key} - SSIM: {ssim_val:.4f}, PSNR: {psnr_val:.4f}",fontsize=14)
-
-                original = canva.add_subplot(121)
-                original.imshow(image, cmap='gray')
-                original.set_title(f'Original {key}')
-                original.axis('off')
-
-                filtrada = canva.add_subplot(122)
-                filtrada.imshow(image_trans, cmap='gray')
-                filtrada.set_title(f'Transformada {key}')
-                filtrada.axis('off')
-
-                canva.tight_layout()
-                plt.show(block=True)
-
-            self.img_dict[key] = image_trans
-
-        return ssim_dict, psnr_dict, r
+        return ssim_dict, psnr_dict, r, img_originales, img_transfor
 
     def calcular_varianzas(self):
         """
