@@ -1,9 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Mar 15 10:55:10 2024
-
-@author: Jorge
-"""
 import cv2
 import matplotlib
 matplotlib.use('TkAgg')
@@ -17,7 +11,14 @@ from scipy.linalg import lstsq
 from numpy.fft import fft2, fftshift, ifft2, ifftshift
 from skimage.metrics import structural_similarity as ssim
 from skimage.metrics import peak_signal_noise_ratio as psnr
+from scipy import linalg
+from scipy.sparse import lil_matrix
+from scipy.sparse import coo_matrix
+from scipy.sparse.linalg import spsolve
 
+from scipy.optimize import minimize
+from scipy.spatial.distance import cdist
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 class Cargarimagenes:
     def __init__(self, img_rutas):
         # self.img_rutas = img_rutas
@@ -58,9 +59,10 @@ class Procesarimagenes:
         self.ruido=None
 
         'aplicamos funciones'
-        self.nivel_ruido()
+        # self.nivel_ruido()
         self.filtro(ver=False)
-        self.aplicar_fourier(ver=False)
+        # self.aplicar_fourier(ver=False)
+        # self.filtro(ver=False)
 
     def nivel_ruido(self):
         '''
@@ -78,7 +80,7 @@ class Procesarimagenes:
         return result_ruido
 
 
-    def filtro(self, sigma = 1, ver = True):
+    def filtro(self, sigma = 20, ver = True):
         '''
         Funcion que aplica un filtro gaussiano a nuestras imagenes
         Sabemos que tiene ruido gaussiano debido a los histogramas
@@ -103,16 +105,6 @@ class Procesarimagenes:
 
                 canva.tight_layout()
                 plt.show(block=True)
-
-    # def estimacion_radio(self):
-    #     '''
-    #     vamos a estimar el valor del el radio para la transofrmada de fourier en
-    #     funcion del contenido de la imagen, ya que en imagenes SEM nos interesa
-    #     preservar los detalles y eliminar ruido
-    #     :return:
-    #     '''
-    #     r=70
-    #     return r
 
     def transformada_fourier(self,image):
         t_fourier=fft2(image) # calcualo de la transformada rapida de fourier
@@ -145,6 +137,7 @@ class Procesarimagenes:
             t_fourier=self.transformada_fourier(image)
             r=self.estimacion_radio(t_fourier)
             # r=self.estimacion_radio()
+            # r=200
             image_trans = self.filtro_trans_inversa(t_fourier,r)
 
             #metricas de calidad de la imagen
@@ -266,6 +259,7 @@ class Metodosaplanacion:
     def aplicar_aplanacion(self):
         for key, image in self.datos.img_dict.items():
             self.datos.img_dict[key]=self.aplanacion(image)
+
     def aplanacion(self, image):
         '''
         Aplanacion por ajuste mediante MINIMOS CUADRADOS!!
@@ -294,9 +288,33 @@ class Metodosaplanacion:
 
         image_correct = image - plano
 
+
         num_cond = self.numero_condicion(matriz_sist, ver=False)
 
         residuo = self.evaluar_ajuste(image, coefi, matriz_sist)
+
+
+        # val_max=np.max(image)
+        # plt.figure(figsize=(10, 5))
+        # plt.subplot(1, 3, 1)
+        # plt.imshow(image, cmap='gray')
+        # plt.title(f'Imagen Original - Max: {val_max}')
+        # plt.colorbar()
+        #
+        # val_max = np.max(plano)
+        # plt.subplot(1, 3, 2)
+        # plt.imshow(plano, cmap='gray')
+        # plt.title(f'Plano - Max: {val_max}')
+        # plt.colorbar()
+        #
+        # val_max= np.max(image_correct)
+        # plt.subplot(1, 3, 3)
+        # plt.imshow(image_correct, cmap='gray')
+        # plt.title(f'Imagen Ajustada - Max: {val_max}')
+        # # plt.text('')
+        # plt.colorbar()
+        # plt.show()
+
 
         return image_correct
 
@@ -336,16 +354,18 @@ class Metodosaplanacion:
 class Reconstruccion:
     def __init__(self,datos):
         self.datos = datos
-        self.dpixel = 1/251
+        self.dpixel = 500/251
 
         "funciones"
-        self.integracion(1,1,0)
+        # self.integracion(1,1,0)
+        self.integrar_bidireccional(1,1,0)
+        # self.integrar_bidireccional_python()
+
+        # self.corregir_plano()
+        # self.corregir_polinomio()
         self.plot_superficie(ver_textura=True)
     def integracion(self, c, d, z0, eps=1e-5):
         # print(self.img_dict)
-        # for key,image in self.img_dict.items():
-        #     self.img_dict[key]=image.astype(np.float32)
-        #     print(image.dtype)
 
         i_a = self.datos.img_dict['right'].astype(np.float32)
         # print(i_a.dtype)
@@ -357,22 +377,188 @@ class Reconstruccion:
         s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
         s_dy = (i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
 
-        # print(s_dx)
-        # print(s_dy)
 
-        # Acumulación a lo largo de axis=1 --> x / axis=0 -->y
-        # z_x=cumtrapz(s_dx*c/d, dx=self.dpixel, axis=1, initial=z0)
-        # z_y=cumtrapz(s_dy*c/d, dx=self.dpixel, axis=0, initial=z0)
         z_x = cumulative_trapezoid(s_dx * c / d, dx=self.dpixel, axis=1, initial=z0)
         z_y = cumulative_trapezoid(s_dy * c / d, dx=self.dpixel, axis=0, initial=z0)
 
         self.z = z_x + z_y  # ahora self.z ya no es None
-        # print(self.z)
-        # print(np.max(self.z))
-        # print(np.min(self.z))
-        # self.z=self.z/(np.max(self.z))
-        # print(np.max(self.z))
-        # print(np.min(self.z))
+
+        media = self.z.mean()
+        desviacion = self.z.std()
+        print(media, desviacion)
+
+    def integrar_bidireccional(self,c,d,z0, eps=1e-5):
+        i_a = self.datos.img_dict['right'].astype(np.float32)
+        # print(i_a.dtype)
+        i_b = self.datos.img_dict['left'].astype(np.float32)
+        i_c = self.datos.img_dict['top'].astype(np.float32)
+        i_d = self.datos.img_dict['bottom'].astype(np.float32)
+
+        # restriingimos la division por cero para uqe no nos salte ningun error
+        s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
+        s_dy = (i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
+
+        # Integración de izquierda a derecha en x
+        z_lr = np.cumsum(s_dx * self.dpixel, axis=1)
+        # Integración de derecha a izquierda en x (invierte la matriz, integra, y luego invierte el resultado)
+        z_rl = np.cumsum(np.flip(s_dx, axis=1) * self.dpixel, axis=1)
+        z_rl = np.flip(z_rl, axis=1)
+
+        # Integración de arriba a abajo en y
+        z_tb = np.cumsum(s_dy * self.dpixel, axis=0)
+        # Integración de abajo hacia arriba en y (invierte la matriz, integra, y luego invierte el resultado)
+        z_bt = np.cumsum(np.flip(s_dy, axis=0) * self.dpixel, axis=0)
+        z_bt = np.flip(z_bt, axis=0)
+
+        # Combinación de las integraciones
+        z_combined = (z_lr + z_rl + z_tb + z_bt) / 4
+        self.z=z_combined
+        media= z_combined.mean()
+        desviacion=z_combined.std()
+        print(f'la media es {media}')
+        print(f'la desviacion es {desviacion}')
+
+        return self.z
+
+    def integrar_bidireccional_python(self):
+        """
+        images: diccionario con las imágenes 'top', 'bottom', 'left', 'right'
+        dpixel: tamaño de pixel en las unidades deseadas
+        """
+        # Convertimos las imágenes a flotantes y normalizamos si es necesario
+        i_top = self.datos.img_dict['top'].astype(np.float32)
+        i_bottom = self.datos.img_dict['bottom'].astype(np.float32)
+        i_left = self.datos.img_dict['left'].astype(np.float32)
+        i_right = self.datos.img_dict['right'].astype(np.float32)
+
+        # Calculamos las diferencias normalizadas (gradientes)
+        s_dx = (i_right - i_left) / (i_right + i_left + np.spacing(1))
+        s_dy = (i_bottom - i_top) / (i_bottom + i_top + np.spacing(1))
+
+        # Integramos las gradientes
+        z_lr = np.cumsum(s_dx, axis=1) * self.dpixel
+        z_rl = np.cumsum(np.fliplr(s_dx), axis=1) * self.dpixel
+        z_rl = np.fliplr(z_rl)
+
+        z_tb = np.cumsum(s_dy, axis=0) * self.dpixel
+        z_bt = np.cumsum(np.flipud(s_dy), axis=0) * self.dpixel
+        z_bt = np.flipud(z_bt)
+
+        # Promediamos las superficies integradas en cada dirección
+        z_combined = (z_lr + np.fliplr(z_rl) + z_tb + np.flipud(z_bt)) / 4
+
+        # Corrección final: restar la media para centrar la superficie
+        z_corrected = z_combined - np.mean(z_combined)
+        self.z = z_combined
+        # return z_corrected
+
+    def corregir_plano(self):
+        z = self.z
+        # Creamos una malla de coordenadas basada en la topografía
+        x_index, y_index = np.indices(z.shape)
+
+        # Preparamos la matriz de diseño para la regresión lineal múltiple, incluyendo un término constante
+        X = np.stack((x_index.ravel(), y_index.ravel(), np.ones_like(x_index).ravel()), axis=-1)
+
+        # Vector de topografía (variable respuesta)
+        Y = z.ravel()
+
+        # Ajustamos el modelo lineal (plano) a los datos
+        coeficientes, residuals, rank, s = linalg.lstsq(X, Y)
+
+        # Calculamos el plano estimado usando los coeficientes obtenidos
+        plano_estimado = X @ coeficientes
+        plano_estimado = plano_estimado.reshape(z.shape)
+
+        # Restamos el plano estimado de la topografía original para corregir la inclinación
+        z_corregido = z - plano_estimado
+        self.z = z_corregido
+
+        # Mostrar resultados
+        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+
+        # Original Topography
+        cax_0 = axs[0].imshow(z, cmap='plasma')
+        fig.colorbar(cax_0, ax=axs[0], orientation='vertical')
+        axs[0].set_title('Topografía Original')
+        axs[0].axis('off')
+
+        # Plano Estimado
+        cax_1 = axs[1].imshow(plano_estimado, cmap='plasma')
+        fig.colorbar(cax_1, ax=axs[1], orientation='vertical')
+        axs[1].set_title('Plano Estimado')
+        axs[1].axis('off')
+
+        # Topografía Corregida
+        cax_2 = axs[2].imshow(z_corregido, cmap='plasma')
+        fig.colorbar(cax_2, ax=axs[2], orientation='vertical')
+        axs[2].set_title('Topografía Corregida')
+        axs[2].axis('off')
+
+        plt.show()
+
+        # Imprimir métricas
+        print("Coeficientes del plano:", coeficientes)
+        print("Suma de residuos cuadrados:", residuals)
+
+        # Calcular métricas adicionales
+        mse = np.mean((z - z_corregido) ** 2)
+        mae = np.mean(np.abs(z - z_corregido))
+        print("Mean Squared Error (MSE):", mse)
+        print("Mean Absolute Error (MAE):", mae)
+
+        # return z_corregido, plano_estimado, residuals, coeficientes
+
+    def corregir_polinomio(self, grado=2):
+        z = self.z
+        x_index, y_index = np.indices(z.shape)
+
+        # Generar los términos del polinomio
+        X = np.ones(z.shape).ravel()
+        for i in range(1, grado + 1):
+            for j in range(i + 1):
+                X = np.vstack((X, (x_index ** (i - j) * y_index ** j).ravel()))
+
+        # Vector de topografía (variable respuesta)
+        Y = z.ravel()
+
+        # Ajustar el modelo polinomial a los datos
+        coeficientes, residuals, rank, s = linalg.lstsq(X.T, Y)
+
+        # Calcular la superficie polinomial estimada usando los coeficientes obtenidos
+        z_estimado = np.dot(X.T, coeficientes).reshape(z.shape)
+
+        # Calcular la topografía corregida
+        z_corregido = z - z_estimado
+
+        # Calcular errores
+        mse = np.mean((z - z_estimado) ** 2)
+        mae = np.mean(np.abs(z - z_estimado))
+
+        # Visualización
+        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+        # cmaps = ['viridis', 'plasma', 'inferno']
+        # cmaps=['plasma']
+
+        for ax, data, title in zip(axs, [z, z_estimado, z_corregido],
+                                         ['Topografía Original', 'Superficie Polinomial Estimada',
+                                          'Topografía Corregida'],
+                                   ):
+            img = ax.imshow(data, cmap='plasma')
+            ax.set_title(title)
+            ax.axis('off')
+            fig.colorbar(img, ax=ax)
+
+        plt.show()
+
+        # Métricas
+        print("Coeficientes del polinomio:", coeficientes)
+        print("Suma de residuos cuadrados:", residuals)
+        print("Mean Squared Error (MSE):", mse)
+        print("Mean Absolute Error (MAE):", mae)
+        self.z=z_corregido
+        # return z_corregido, z_estimado, coeficientes, mse, mae
+
 
     def plot_superficie(self, ver_textura=True):
         # plt.ion()
@@ -414,6 +600,7 @@ class Reconstruccion:
             axis_2.set_xlabel('X (um)')
             axis_2.set_ylabel('Y (um)')
             axis_2.set_zlabel('Z (altura en um)')
+            # axis_2.set_zlim(-20,1000)
 
             mappable_gray = cm.ScalarMappable(cmap=cm.gray)
             mappable_gray.set_array(self.datos.textura)
@@ -427,6 +614,7 @@ class Contornos:
         self.dpixel = Reconstruccion.dpixel
 
         self.contornear_x(300)
+        self.contornear_y(300)
         # self.muchos_contorno_x(5)
 
     def contornear_x(self, pos_y):
@@ -460,7 +648,7 @@ class Contornos:
             np.abs(perfil[minimos_5])) / minimos_5.size  # por si acaso no hubiese 5 picos
 
         # ploteamos:
-        contorno = plt.figure(figsize=(15, 5))
+        contorno = plt.figure(figsize=(12,4))
         ax = contorno.add_subplot(111)
 
         ax.plot(ax_x, perfil, '#4682B4', label=f'Contorno en y={pos_y}')
@@ -488,7 +676,65 @@ class Contornos:
         ax.legend()
         plt.show()
 
-        def pilacontornos_x(self, ncontorno):
+    def contornear_y(self, pos_x):
+        # pos_y = 20  # 20 por ejemplo
+        perfil = self.z[:, pos_x]
+        perfil = gaussian_filter(perfil, sigma=1)
+        ax_x = np.arange(len(perfil)) * self.dpixel
+
+        'Ra'
+        media_perfil = np.mean(perfil)
+
+        Ra = np.mean(np.abs(
+            perfil - media_perfil))  # rugosidad media aritmetica  -> promedio abs desviaciones a lo largo de la muestra
+        Rmax = np.max(perfil)
+        Rmin = np.min(perfil)
+
+        'Rz'
+        pikos, _ = find_peaks(perfil, distance=70, prominence=0.2)
+        minimos, _ = find_peaks(-perfil, distance=95, prominence=0.2)
+
+        pikos_val = perfil[pikos]  # valores nominales pikkos
+        minimos_val = perfil[minimos]  # valores nominales minimos
+
+        # np.argsort(pikos_alturas) --> nos devuelve un array =shape que tiene: [0]- mas bajo....[-1] mas alto
+        # nos movemos en el espacio de indices de pikos_val
+        pikos_5 = pikos[np.argsort(pikos_val)[-5:]]
+        minimos_5 = minimos[np.argsort(minimos_val)[-5:]]
+
+        # pasamos al espacio de indices de perfil a traves del orden hecho
+        Rz = np.sum(np.abs(perfil[pikos_5])) / pikos_5.size + np.sum(
+            np.abs(perfil[minimos_5])) / minimos_5.size  # por si acaso no hubiese 5 picos
+
+        # ploteamos:
+        contorno = plt.figure(figsize=(12, 4))
+        ax = contorno.add_subplot(111)
+
+        ax.plot(ax_x, perfil, '#4682B4', label=f'Contorno en y={pos_x}')
+        ax.plot(ax_x[pikos_5], perfil[pikos_5], "x", color='red', label='Liberadores de Tensiones')
+        ax.plot(ax_x[minimos_5], perfil[minimos_5], "x", color='k', label='Generadores de Tensiones')
+
+        ax.hlines(Rmax, ax_x[0], ax_x[-1], '#FF4500', '--', label='Rmax')
+        ax.hlines(Rmin, ax_x[0], ax_x[-1], '#FF4500', '--', label='Rmin')
+        ax.hlines(media_perfil, ax_x[0], ax_x[-1], '#FFD700', '--', label='Media')
+        ax.hlines(media_perfil + Ra, ax_x[0], ax_x[-1], 'g', '--', label='Desviacion estandar')
+        ax.hlines(media_perfil - Ra, ax_x[0], ax_x[-1], 'g', '--')
+
+        ax.text(ax_x[300], Rmax, f'{Rmax:.2f}', va='center', ha='right', backgroundcolor='w')
+        ax.text(ax_x[300], Rmin, f'{Rmin:.2f}', va='center', ha='right', backgroundcolor='w')
+        ax.text(ax_x[260], np.mean(perfil), f'{np.mean(perfil):.2f}', va='center', ha='right', backgroundcolor='w')
+
+        # corchete Delta Z
+        alto = 0.05
+        ancho = ax_x[-1] - alto * 2
+        ax.plot([ancho, ancho], [media_perfil, media_perfil + Ra], 'k-', lw=1)
+        ax.plot([ancho - alto / 2, ancho + alto / 2], [media_perfil + Ra, media_perfil + Ra], 'k-', lw=1)
+        ax.plot([ancho - alto / 2, ancho + alto / 2], [media_perfil, media_perfil], 'k-', lw=1)
+        ax.text(ancho + alto, media_perfil + Ra / 2, f'Δz={Ra:.2f}', va='center', ha='left', backgroundcolor='w')
+        print('se ha ejecutado no?')
+        ax.legend()
+        plt.show()
+    def pilacontornos_x(self, ncontorno):
             pos_y = np.random.randint(0, self.z.shape[0], ncontorno)
             pos_y = np.sort(pos_y)
 
@@ -537,20 +783,32 @@ class Histograma:
         self.datos = datos
         self.histogramear()
     def histogramear(self):
+        stats = {key: {'media':np.mean(image), 'desviacion':np.std(image)}
+                 for key, image in self.datos.img_dict.items() if key !='textura'}
 
-        histo_canva = plt.figure(figsize=(10, 20))
+        histo_canva = plt.figure(figsize=(10, 7))
 
         for i, (key, image) in enumerate(self.datos.img_dict.items()):
             # if i<4:
             if key != 'textura':
-                ax_img = histo_canva.add_subplot(4, 2, 2 * i + 1)
+                ax_img = histo_canva.add_subplot(4, 3, 3 * i + 1)
+                #img
                 imagen = ax_img.imshow(image, cmap='gray')
                 ax_img.set_title(f'imagen {key}')
                 ax_img.axis('off')
-
-                ax_hist = histo_canva.add_subplot(4, 2, 2 * i + 2)
-                hist = ax_hist.hist(image.ravel(), bins=256, range=[1, 256], color='gray', alpha=0.75)
+                # histograma
+                ax_hist = histo_canva.add_subplot(4, 3, 3 * i + 2)
+                hist = ax_hist.hist(image.ravel(), bins=256, range=[10, 256], color='gray', alpha=0.75)
                 ax_hist.set_title(f'histograma imagen {key}')
+
+                # metricas
+                ax_stats=histo_canva.add_subplot(4, 3, 3 * i + 3)
+                stats_txt=(f'Media:{stats[key]['media']:.2f} \n '
+                           f'Desviacion estándar:{stats[key]['desviacion']:.2f}')
+                ax_stats.text(0.5,0.5,stats_txt,horizontalalignment = 'center',verticalalignment='center',fontsize = 12 )
+                ax_stats.axis('off')
+
+
             else:
                 break
 
@@ -559,8 +817,18 @@ class Histograma:
         plt.show()
 
 
-img_rutas = {'top': 'imagenes/SENOS1-T.BMP', 'bottom': 'imagenes/SENOS1-B.BMP', 'left': 'imagenes/SENOS1-L.BMP',
-             'right': 'imagenes/SENOS1-R.BMP', 'textura': 'imagenes/SENOS1-S.BMP'}
+#
+# img_rutas = {'top': 'imagenes/SENOS1-T.BMP', 'bottom': 'imagenes/SENOS1-B.BMP', 'left': 'imagenes/SENOS1-L.BMP',
+#              'right': 'imagenes/SENOS1-R.BMP', 'textura': 'imagenes/SENOS1-S.BMP'}
+
+img_rutas = {'top': 'imagenes/4-C-T.BMP', 'bottom': 'imagenes/4-C-B.BMP', 'left': 'imagenes/4-C-L.BMP',
+             'right': 'imagenes/4-C-R.BMP', 'textura': 'imagenes/4-C-S.BMP'}
+
+# img_rutas = {'top': 'imagenes/6-C-T.BMP', 'bottom': 'imagenes/6-C-B.BMP', 'left': 'imagenes/6-C-L.BMP',
+#              'right': 'imagenes/6-C-R.BMP', 'textura': 'imagenes/6-C-S.BMP'}
+# img_rutas = {'top': 'imagenes/6M-C-T.BMP', 'bottom': 'imagenes/6M-C-B.BMP', 'left': 'imagenes/6M-C-L.BMP',
+#               'right': 'imagenes/6M-C-R.BMP', 'textura': 'imagenes/6M-C-S.BMP'}
+
 # img_rutas = {'top': 'imagenes/CIRC1_T.BMP','bottom': 'imagenes/CIRC1_B.BMP','left': 'imagenes/CIRC1_L.BMP','right': 'imagenes/CIRC1_R.BMP','textura': 'imagenes/CIRC1.BMP'}
 
 # img_rutas = {'top': 'imagenes/RUEDA1_T.BMP','bottom': 'imagenes/RUEDA1_B.BMP','left': 'imagenes/RUEDA1_L.BMP','right': 'imagenes/RUEDA1_R.BMP','textura': 'imagenes/RUEDA1_S.BMP'}
@@ -570,12 +838,15 @@ img_rutas = {'top': 'imagenes/SENOS1-T.BMP', 'bottom': 'imagenes/SENOS1-B.BMP', 
 # plt.ion()
 
 cargar = Cargarimagenes(img_rutas)
-histograma = Histograma(cargar)
-procesar = Procesarimagenes(cargar)
+# histograma = Histograma(cargar)
+# procesar = Procesarimagenes(cargar)
 ecualizar = Ecualizacion(cargar)
-histograma = Histograma(cargar)
+# histograma = Histograma(cargar)
 # aplanar = Metodosaplanacion(cargar)
+procesar = Procesarimagenes(cargar)
+
 
 reconstruir = Reconstruccion(cargar)
-contornear = Contornos(reconstruir)
+# contornear = Contornos(reconstruir)
+
 

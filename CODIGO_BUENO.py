@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Mar 15 10:55:10 2024
+
+@author: Jorge
+"""
 import cv2
 import matplotlib
 matplotlib.use('TkAgg')
@@ -11,8 +17,11 @@ from scipy.linalg import lstsq
 from numpy.fft import fft2, fftshift, ifft2, ifftshift
 from skimage.metrics import structural_similarity as ssim
 from skimage.metrics import peak_signal_noise_ratio as psnr
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
+
+from scipy.sparse import lil_matrix
+from scipy.sparse import coo_matrix
+from scipy.sparse.linalg import spsolve
+
 class Cargarimagenes:
     def __init__(self, img_rutas):
         # self.img_rutas = img_rutas
@@ -46,39 +55,58 @@ class Cargarimagenes:
                 self.img_dict[key] = image
 
 class Procesarimagenes:
-    def __init__(self,img_dict):
-        self.img_dict = img_dict
+    def __init__(self, datos):
+        self.datos= datos
+
+        'atributos nuevos'
+        self.ruido=None
+
+        'aplicamos funciones'
+        self.nivel_ruido()
+        self.filtro(ver=False)
+        self.aplicar_fourier(ver=False)
 
     def nivel_ruido(self):
-        print("Comenzando cálculo de nivel de ruido...")
-        result_ruido = {}
-        for key, image in self.img_dict.items():  # Asegúrate de que esto debería ser self.datos si datos es el diccionario
-            if image is None:
-                print(f"Error: La imagen para {key} no se ha cargado correctamente.")
-                result_ruido[key] = "Error: Imagen no cargada"
-            else:
-                ruido = np.std(image)
-                result_ruido[key] = ruido
-                print(f"El nivel de ruido para {key} es: {ruido}")
+        '''
+        input: Nuestro objeto, mas en concreto el diccionario
+        output: el ruido de nuestra imagen
+        '''
+        print("Valores Ruido")
+        result_ruido={}
+        for key, image in self.datos.img_dict.items():
+            # if key != 'textura':  --> no hace falta, en esta nueva version no hay textura en img_dict
+            self.ruido = np.std(image)
+            print(f'El nivel de ruido de {key} es {self.ruido}')
+            # return self.ruido #es necesario??'
+            result_ruido[key] = self.ruido
         return result_ruido
 
-    def filtro(self, sigma=1):
+
+    def filtro(self, sigma = 1, ver = True):
         '''
         Funcion que aplica un filtro gaussiano a nuestras imagenes
         Sabemos que tiene ruido gaussiano debido a los histogramas
         sigma: nivel de agresividad edl filtro
         '''
-        img_original = {}
-        img_filtrada = {}
+        for key, image in self.datos.img_dict.items():
+            img_no_filtrada = self.datos.img_dict[key]
+            self.datos.img_dict[key] = gaussian_filter(image, sigma=sigma)
+            print(f'La imagen {key} se ha filtrado correctamente')
 
-        for key, image in self.img_dict.items():
-            img_original[key]= self.img_dict[key].copy()
-            self.img_dict[key] = gaussian_filter(image, sigma=sigma)
-            img_filtrada[key]= self.img_dict[key].copy()
-            # print(f'La imagen {key} se ha filtrado correctamente')
+            if ver==True:
+                canva=plt.figure(figsize=(8,3))
+                original=canva.add_subplot(121)
+                original.imshow(img_no_filtrada, cmap ='gray')
+                original.set_title(f'Original {key}')
+                original.axis('off')
 
-        return img_original, img_filtrada
+                filtrada=canva.add_subplot(122)
+                filtrada.imshow(self.datos.img_dict[key], cmap='gray')
+                filtrada.set_title(f'Filtrada {key}')
+                filtrada.axis('off')
 
+                canva.tight_layout()
+                plt.show(block=True)
 
     def transformada_fourier(self,image):
         t_fourier=fft2(image) # calcualo de la transformada rapida de fourier
@@ -101,40 +129,42 @@ class Procesarimagenes:
         inv_t_fourier=ifftshift(t_fourier_mask) # se invierte el espectro
         img_trans=np.abs(ifft2(inv_t_fourier))  #nos aseguramos que sea una imagen REAL
         return img_trans
-    def aplicar_fourier(self):
+    def aplicar_fourier(self,ver=True):
         '''
         Funcion que aplica la transformada de fourier sobre self.img_dict
         :param ver: ==True --> vemos la imagen transformada // ==False --> no hay plot
         '''
         print('Valores Fourier')
-        ssim_dict = {}
-        psnr_dict = {}
-        img_originales={}
-        img_transfor={}
-        for key, image in self.img_dict.items():
-            img_originales[key]=self.img_dict[key].copy()
+        for key, image in self.datos.img_dict.items():
             t_fourier=self.transformada_fourier(image)
             r=self.estimacion_radio(t_fourier)
-            self.img_dict[key] = self.filtro_trans_inversa(t_fourier,r)
-            # print('fallo aqui joder')
-            img_transfor[key]=self.img_dict[key].copy()
-
-            # Normalizamos nuestra imagen a que si no con el pixmap de Qt solo se vería ruido (normal vaya)
-            img_transfor[key] = np.abs(img_transfor[key])  # obtienemos la magnitud
-            img_transfor[key]= np.log1p(img_transfor[key])  # escala logaritmica
-            img_transfor[key] -= img_transfor[key].min()  # mínimo sea 0
-            img_transfor[key] /= img_transfor[key].max()  # normalizamos
-            img_transfor[key] = (img_transfor[key] * 255).astype(np.uint8)  # escalamos los valores entre 0 y 255
+            # r=self.estimacion_radio()
+            image_trans = self.filtro_trans_inversa(t_fourier,r)
 
             #metricas de calidad de la imagen
-            ssim_val=ssim(image, self.img_dict[key], data_range = image.max() - image.min())
-            psnr_val=psnr(image, self.img_dict[key], data_range = image.max() - image.min())
-            # print(f"{key} - SSIM: {ssim_val:.4f}, PSNR: {psnr_val:.4f}")
+            ssim_val=ssim(image, image_trans, data_range = image.max() - image.min())
+            psnr_val=psnr(image, image_trans, data_range = image.max() - image.min())
+            print(f"{key} - SSIM: {ssim_val:.4f}, PSNR: {psnr_val:.4f}")
 
-            ssim_dict[key]=ssim_val
-            psnr_dict[key]=psnr_val
+            if ver == True:
 
-        return ssim_dict, psnr_dict, r, img_originales, img_transfor
+                canva = plt.figure(figsize=(8, 3))
+                canva.suptitle(f"{key} - SSIM: {ssim_val:.4f}, PSNR: {psnr_val:.4f}",fontsize=14)
+
+                original = canva.add_subplot(121)
+                original.imshow(image, cmap='gray')
+                original.set_title(f'Original {key}')
+                original.axis('off')
+
+                filtrada = canva.add_subplot(122)
+                filtrada.imshow(image_trans, cmap='gray')
+                filtrada.set_title(f'Transformada {key}')
+                filtrada.axis('off')
+
+                canva.tight_layout()
+                plt.show(block=True)
+
+            self.datos.img_dict[key] = image_trans
 
     def calcular_varianzas(self):
         """
@@ -142,7 +172,7 @@ class Procesarimagenes:
         de varianzas correspondiente a cada clave de imagen.
         """
         varianzas = {}
-        for key, image in self.img_dict.items():
+        for key, image in self.datos.img_dict.items():
             varianzas[key] = np.var(image)
         return varianzas
 
@@ -173,11 +203,12 @@ class Procesarimagenes:
         return radio
 
 class Ecualizacion:
+    def __init__(self,datos):
+        "atributos"
+        self.datos = datos
 
-    def __init__(self, img_dict):
-        self.img_dict = img_dict
         "funciones"
-        # self.ecualizar()
+        self.ecualizar()
     def contraste(self,image):
         return np.std(image)
 
@@ -188,12 +219,10 @@ class Ecualizacion:
         S = -np.sum(hist_norm * np.log2(hist_norm + np.finfo(float).eps)) #con np.finfo evitamos un posible log 0
         return  S
 
+
     def ecualizar(self):
         print("Valores ecualizacion")
-        contraste_dict={}
-        entropia_dict={}
-        print('1')
-        for key, image in self.img_dict.items():
+        for key, image in self.datos.img_dict.items():
             print(f"Procesando imagen {key}")
 
             contraste_antes = self.contraste(image)
@@ -215,36 +244,70 @@ class Ecualizacion:
             entropia_despues = self.entropia(image_ecualizada)
 
             # Actualizar la imagen en el diccionario
-            self.img_dict[key] = image_ecualizada
+            self.datos.img_dict[key] = image_ecualizada
 
             # Imprimir mejoras
             print(f"Imagen {key} - Mejora de Contraste: {contraste_despues - contraste_antes}")
             print(f"Imagen {key} - Mejora de Entropía: {entropia_despues - entropia_antes}")
 
-            dcontraste=contraste_despues - contraste_antes
-            dentropia=entropia_despues - entropia_antes
-
-            contraste_dict[key]=dcontraste
-            entropia_dict[key]=dentropia
-
-        return contraste_dict, entropia_dict
 class Metodosaplanacion:
-    def __init__(self,img_dict):
-        self.img_dict = img_dict
+    def __init__(self,datos):
+        self.datos = datos
 
         "funciones"
         self.aplicar_aplanacion()
 
+    def aplanacion_poli(self, image):
+        # Obtenemos dos matrices con índices cuya shape = imagen.shape
+        index_y, index_x = np.indices(image.shape)
+
+        # Aplanamos la imagen para operar sobre un array unidimensional
+        image_flat = image.flatten()
+
+        # Construimos la matriz de diseño para el ajuste polinómico
+        # Por ejemplo, un polinomio de segundo grado tendría la forma:
+        # z = c00 + c10*x + c01*y + c20*x^2 + c11*x*y + c02*y^2
+        # Los coeficientes c10 y c01 corresponden al plano que ya has calculado.
+        # Añadiríamos c20, c11, c02 para el ajuste polinómico de segundo grado.
+        X_poly = np.column_stack((
+            np.ones_like(image_flat),  # Término constante
+            index_x.flatten(),  # x
+            index_y.flatten(),  # y
+            index_x.flatten() ** 2,  # x^2
+            index_x.flatten() * index_y.flatten(),  # x*y
+            index_y.flatten() ** 2  # y^2
+        ))
+
+        # Ajustamos el modelo
+        coefs_poly, _, _, _ = lstsq(X_poly, image_flat)
+
+        # Calculamos el plano polinómico
+        plano_poly = X_poly @ coefs_poly.reshape(-1, 1)
+        plano_poly = plano_poly.reshape(image.shape)
+
+        # Restamos el plano de la imagen original
+        image_corrected = image - plano_poly
+
+        # Encuentra el valor mínimo y ajusta la imagen para que el mínimo sea 0
+        min_value = np.min(image_corrected)
+        image_corrected -= min_value
+
+        # Opcionalmente, puedes reescalar la imagen a su rango original de intensidades
+        image_corrected = (image_corrected / np.max(image_corrected)) * 255
+
+        return image_corrected
+
     def aplicar_aplanacion(self):
-        condicion_dict={}
-        residuo_dict={}
-        for key, image in self.img_dict.items():
-            self.img_dict[key],condicion_dict[key],residuo_dict[key]=self.aplanacion(image)
+        for key, image in self.datos.img_dict.items():
+            self.datos.img_dict[key]=self.aplanacion(image)
+            # self.datos.img_dict[key]=self.aplanacion_poli(image)
 
-        return condicion_dict,residuo_dict
+    def normalize_image(self,image, scale_min=0, scale_max=250):
+        image_min = np.min(image)
+        image_max = np.max(image)
+        normalized_image = (image - image_min) / (image_max - image_min) * (scale_max - scale_min) + scale_min
+        return normalized_image.astype(np.uint8)
     def aplanacion(self, image):
-
-
         '''
         Aplanacion por ajuste mediante MINIMOS CUADRADOS!!
 
@@ -272,11 +335,43 @@ class Metodosaplanacion:
 
         image_correct = image - plano
 
+        # min=np.min(image_correct)
+        # print(min)
+        # #
+        # image_correct = image_correct - min
+        # min=np.min(image_correct)
+        # print(f'este es ahora{min}')
+
         num_cond = self.numero_condicion(matriz_sist, ver=False)
 
         residuo = self.evaluar_ajuste(image, coefi, matriz_sist)
 
-        return image_correct, num_cond, residuo
+        return image_correct
+        # val_max=np.max(image)
+        # plt.figure(figsize=(15, 5))
+        # plt.subplot(1, 3, 1)
+        # plt.imshow(image, cmap='gray')
+        # plt.title('Imagen Original')
+        # plt.text(f'Max: {val_max:.2f}',f'')
+        # plt.colorbar()
+        #
+        # plt.subplot(1, 3, 2)
+        # plt.imshow(plano, cmap='gray')
+        # plt.title('Plano Substraído')
+        # plt.colorbar()
+        #
+        # plt.subplot(1, 3, 3)
+        # plt.imshow(image_correct, cmap='gray')
+        # plt.title('Imagen Ajustada')
+        # # plt.text('')
+        # plt.colorbar()
+        #
+        # plt.show()
+        # num_cond = self.numero_condicion(matriz_sist, ver=False)
+        #
+        # residuo = self.evaluar_ajuste(image, coefi, matriz_sist)
+        #
+        # return image_correct
 
     def numero_condicion(self, matriz_sist, ver=True):
         numero_condicion = np.linalg.cond(matriz_sist)
@@ -312,31 +407,30 @@ class Metodosaplanacion:
         return norma_residual
 
 class Reconstruccion:
-    def __init__(self,img_dict,textura):
-        self.img_dict = img_dict
-        # self.dpixel = 1/251
-        self.dpixel=0.5/251
-        self.z=None
-        self.textura = textura
+    def __init__(self,datos):
+        self.datos = datos
+        self.dpixel = 1/251
 
         "funciones"
-        # self.integracion(1,1,0)
-        # self.plot_superficie(ver_textura=True)
+        self.integracion(1,1,0)
+        # grad_x,grad_y=self.calcular_gradientes(1,1)
+        # self.integracion_poisson(grad_x,grad_y)
+        self.plot_superficie(ver_textura=True)
     def integracion(self, c, d, z0, eps=1e-5):
         # print(self.img_dict)
         # for key,image in self.img_dict.items():
         #     self.img_dict[key]=image.astype(np.float32)
         #     print(image.dtype)
 
-        i_a = self.img_dict['right'].astype(np.float32)
+        i_a = self.datos.img_dict['right'].astype(np.float32)
         # print(i_a.dtype)
-        i_b = self.img_dict['left'].astype(np.float32)
-        i_c = self.img_dict['top'].astype(np.float32)
-        i_d = self.img_dict['bottom'].astype(np.float32)
+        i_b = self.datos.img_dict['left'].astype(np.float32)
+        i_c = self.datos.img_dict['top'].astype(np.float32)
+        i_d = self.datos.img_dict['bottom'].astype(np.float32)
 
         # restriingimos la division por cero para uqe no nos salte ningun error
         s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
-        s_dy = (i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
+        s_dy = (i_c - i_d) / np.clip(i_c + i_d, eps, np.inf)
 
         # print(s_dx)
         # print(s_dy)
@@ -347,6 +441,18 @@ class Reconstruccion:
         z_x = cumulative_trapezoid(s_dx * c / d, dx=self.dpixel, axis=1, initial=z0)
         z_y = cumulative_trapezoid(s_dy * c / d, dx=self.dpixel, axis=0, initial=z0)
 
+
+        # z_x_reverse = np.fliplr(cumulative_trapezoid(np.fliplr(s_dx * c / d), dx=self.dpixel, axis=1, initial=z0))
+        # z_y_reverse = np.flipud(cumulative_trapezoid(np.flipud(s_dy * c / d), dx=self.dpixel, axis=0, initial=z0))
+        #
+        # # Promedio de las integraciones en ambas direcciones
+        # z_x_symmetric = (z_x + z_x_reverse) / 2
+        # z_y_symmetric = (z_y + z_y_reverse) / 2
+        #
+        # # Combinación de las integraciones simétricas
+        # self.z = z_x_symmetric + z_y_symmetric
+
+
         self.z = z_x + z_y  # ahora self.z ya no es None
         # print(self.z)
         # print(np.max(self.z))
@@ -355,44 +461,121 @@ class Reconstruccion:
         # print(np.max(self.z))
         # print(np.min(self.z))
 
-    def plot_superficie(self,figure,ver_textura):
+    def plot_superficie(self, ver_textura=True):
+        # plt.ion()
+
         x, y = np.meshgrid(np.arange(self.z.shape[1]), np.arange(self.z.shape[0]))
 
         # primera figura
-        # sin_textura = plt.figure()
-        axis_1 = figure.add_subplot(111, projection='3d')
-        # axis_1.plot_surface(x * self.dpixel, y * self.dpixel, self.z, cmap='plasma')
+        sin_textura = plt.figure()
+        axis_1 = sin_textura.add_subplot(111, projection='3d')
+        axis_1.plot_surface(x * self.dpixel, y * self.dpixel, self.z, cmap='plasma')
 
-        # axis_1.set_title('Topografia sin textura')
+        axis_1.set_title('Topografia sin textura')
         axis_1.set_xlabel('X (mm)')
         axis_1.set_ylabel('Y (mm)')
         axis_1.set_zlabel('Z (altura en mm)')
 
-        if ver_textura and self.textura is not None:
-            if self.textura.shape[0] != self.z.shape[0] or self.textura.shape[1] != self.z.shape[1]:
-                # print(f'La forma de la imagen es: {self.textura.shape}')
-                # print(f'La forma de la funcion es: {self.z.shape}')
-                self.textura = cv2.resize(self.textura, (self.z.shape[1], self.z.shape[0]))
-                # print(
-                #     'Hemos tenido que reajustar la dimension de la textura por que no coincidia, mira a ver que todo ande bien...')
+        mappable = cm.ScalarMappable(cmap=cm.plasma)
+        mappable.set_array(self.z)
+        plt.colorbar(mappable, ax=axis_1, orientation='vertical', label='Altura (mm)', shrink=0.5, pad=0.2)
 
-            axis_1.plot_surface(x * self.dpixel, y * self.dpixel, self.z, facecolors=self.textura / 255.0, shade=False)
+        if ver_textura and self.datos.textura is not None:
 
-            axis_1.set_title('Topografia con textura')
+            con_textura = plt.figure()
+            axis_2 = con_textura.add_subplot(111, projection='3d')
+
+            if self.datos.textura.shape[0] != self.z.shape[0] or self.datos.textura.shape[1] != self.z.shape[1]:
+                print(f'La forma de la imagen es: {self.datos.textura.shape}')
+                print(f'La forma de la funcion es: {self.z.shape}')
+                self.textura = cv2.resize(self.datos.textura, (self.z.shape[1], self.z.shape[0]))
+                print(
+                    'Hemos tenido que reajustar la dimension de la textura por que no coincidia, mira a ver que todo ande bien...')
+
+            else:
+                None
+
+            axis_2.plot_surface(x * self.dpixel, y * self.dpixel, self.z, facecolors=self.datos.textura / 255.0, shade=False)
+
+            axis_2.set_title('Topografia con textura')
+            axis_2.set_xlabel('X (um)')
+            axis_2.set_ylabel('Y (um)')
+            axis_2.set_zlabel('Z (altura en um)')
+
             mappable_gray = cm.ScalarMappable(cmap=cm.gray)
-            mappable_gray.set_array(self.textura)
-            figure.colorbar(mappable_gray, ax=axis_1, orientation='vertical', label='Intensidad', shrink=0.5, pad=0.2)
+            mappable_gray.set_array(self.datos.textura)
+            plt.colorbar(mappable_gray, ax=axis_2, orientation='vertical', label='Intensidad', shrink=0.5, pad=0.2)
 
+            plt.show()
 
+    def calcular_gradientes(self, c, d, eps=1e-5):
+        i_a = self.datos.img_dict['right'].astype(np.float32)
+        i_b = self.datos.img_dict['left'].astype(np.float32)
+        i_c = self.datos.img_dict['top'].astype(np.float32)
+        i_d = self.datos.img_dict['bottom'].astype(np.float32)
 
-        else:
-            axis_1.plot_surface(x * self.dpixel, y * self.dpixel, self.z, cmap='plasma')
-            axis_1.set_title('Topografia sin textura')
-            mappable = cm.ScalarMappable(cmap=cm.plasma)
-            mappable.set_array(self.z)
-            figure.colorbar(mappable, ax=axis_1, orientation='vertical', label='Altura (mm)', shrink=0.5, pad=0.2)
-        figure.tight_layout()
+        # Restringimos la división por cero para que no nos salte ningún error
+        s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
+        s_dy = (i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
 
+        # Calculamos los gradientes ajustados por la constante c/d
+        grad_x = s_dx * c / d
+        grad_y = s_dy * c / d
+
+        return grad_x, grad_y
+
+    def integracion_poisson(self, grad_x, grad_y, frontera=None):
+        ny, nx = grad_x.shape
+        N = ny * nx
+
+        # Coordenadas para los elementos no nulos de la matriz A
+        row = np.array([])
+        col = np.array([])
+        data = np.array([])
+
+        # Vector b
+        b = np.zeros(N)
+
+        for y in range(ny):
+            for x in range(nx):
+                i = x + y * nx
+
+                # Asignamos el valor de la divergencia negativa de los gradientes a b
+                b[i] = -grad_x[y, x] - grad_y[y, x]
+
+                # Vecinos
+                if x > 0:
+                    row = np.append(row, i)
+                    col = np.append(col, i - 1)
+                    data = np.append(data, 1)
+                if x < nx - 1:
+                    row = np.append(row, i)
+                    col = np.append(col, i + 1)
+                    data = np.append(data, 1)
+                if y > 0:
+                    row = np.append(row, i)
+                    col = np.append(col, i - nx)
+                    data = np.append(data, 1)
+                if y < ny - 1:
+                    row = np.append(row, i)
+                    col = np.append(col, i + nx)
+                    data = np.append(data, 1)
+                row = np.append(row, i)
+                col = np.append(col, i)
+                data = np.append(data, -4)
+
+                # Condiciones de frontera de Dirichlet si 'frontera' es proporcionada
+                if frontera is not None and (x == 0 or x == nx - 1 or y == 0 or y == ny - 1):
+                    b[i] = frontera[y, x]
+
+        # Construimos la matriz A usando formato COO para eficiencia
+        A = coo_matrix((data, (row, col)), shape=(N, N))
+
+        # Resolvemos el sistema lineal Ax = b
+        x = spsolve(A.tocsr(), b)
+        self.z=x.reshape((ny, nx))
+        # Devolvemos la imagen reconstruida
+        return self.z
 class Contornos:
     def __init__(self, Reconstruccion):
         self.z = Reconstruccion.z
@@ -505,35 +688,34 @@ class Contornos:
         plt.show()
 
 class Histograma:
-    def __init__(self,img_dict):
-        self.img_dict = img_dict
-        # self.histogramear()
-    def histogramear(self,figure):
+    def __init__(self,datos):
+        self.datos = datos
+        self.histogramear()
+    def histogramear(self):
 
-        # histo_canva = plt.figure(figsize=(10, 20))
+        histo_canva = plt.figure(figsize=(10, 20))
 
-        for i, (key, image) in enumerate(self.img_dict.items()):
+        for i, (key, image) in enumerate(self.datos.img_dict.items()):
             # if i<4:
             if key != 'textura':
-                ax_img = figure.add_subplot(4, 2, 2 * i + 1)
+                ax_img = histo_canva.add_subplot(4, 2, 2 * i + 1)
                 imagen = ax_img.imshow(image, cmap='gray')
                 ax_img.set_title(f'imagen {key}')
                 ax_img.axis('off')
 
-                ax_hist = figure.add_subplot(4, 2, 2 * i + 2)
+                ax_hist = histo_canva.add_subplot(4, 2, 2 * i + 2)
                 hist = ax_hist.hist(image.ravel(), bins=256, range=[1, 256], color='gray', alpha=0.75)
                 ax_hist.set_title(f'histograma imagen {key}')
             else:
                 break
-        figure.tight_layout()
-        # histo_canva.canvas.draw()
+
         # histo_canva.tight_layout()
-        # plt.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1, hspace=0.4, wspace=0.3)
-        # plt.show()
+        plt.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1, hspace=0.4, wspace=0.3)
+        plt.show()
 
 
-# img_rutas = {'top': 'imagenes/SENOS1-T.BMP', 'bottom': 'imagenes/SENOS1-B.BMP', 'left': 'imagenes/SENOS1-L.BMP',
-#              'right': 'imagenes/SENOS1-R.BMP', 'textura': 'imagenes/SENOS1-S.BMP'}
+img_rutas = {'top': 'imagenes/SENOS1-T.BMP', 'bottom': 'imagenes/SENOS1-B.BMP', 'left': 'imagenes/SENOS1-L.BMP',
+             'right': 'imagenes/SENOS1-R.BMP', 'textura': 'imagenes/SENOS1-S.BMP'}
 # img_rutas = {'top': 'imagenes/CIRC1_T.BMP','bottom': 'imagenes/CIRC1_B.BMP','left': 'imagenes/CIRC1_L.BMP','right': 'imagenes/CIRC1_R.BMP','textura': 'imagenes/CIRC1.BMP'}
 
 # img_rutas = {'top': 'imagenes/RUEDA1_T.BMP','bottom': 'imagenes/RUEDA1_B.BMP','left': 'imagenes/RUEDA1_L.BMP','right': 'imagenes/RUEDA1_R.BMP','textura': 'imagenes/RUEDA1_S.BMP'}
@@ -542,12 +724,15 @@ class Histograma:
 
 # plt.ion()
 
-# cargar = Cargarimagenes(img_rutas)
+cargar = Cargarimagenes(img_rutas)
 # histograma = Histograma(cargar)
 # procesar = Procesarimagenes(cargar)
 # ecualizar = Ecualizacion(cargar)
 # histograma = Histograma(cargar)
-# # aplanar = Metodosaplanacion(cargar)
-#
-# reconstruir = Reconstruccion(cargar)
+# aplanar = Metodosaplanacion(cargar)
+# procesar = Procesarimagenes(cargar)
+
+
+reconstruir = Reconstruccion(cargar)
 # contornear = Contornos(reconstruir)
+
