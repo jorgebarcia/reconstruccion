@@ -448,15 +448,15 @@ class Reconstruccion:
         # s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
         # s_dy = (i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
 
-        s_dx = (i_b - i_a) / (i_a+i_b)
+        s_dx = (i_a - i_b) / (i_a+i_b)
         s_dy = (i_d - i_c) / (i_c+i_d)
 
 
         z_x = cumulative_trapezoid(s_dx * c / d, dx=self.dpixel, axis=1, initial=z0)
         z_y = cumulative_trapezoid(s_dy * c / d, dx=self.dpixel, axis=0, initial=z0)
 
-        # z_x = trapezoid(s_dx*c/d,dx=self.dpixel,axis=1)
-        # z_y = trapezoid(s_dy,dx=self.dpixel,axis=0)
+        # z_x = trapezoid(s_dx*c/d,dx=self.dpixel,axis=0)
+        # z_y = trapezoid(s_dy,dx=self.dpixel,axis=1)
 
         self.z = z_x + z_y  # ahora self.z ya no es None
 
@@ -476,16 +476,56 @@ class Reconstruccion:
         i_b = i_b / 255 + 1
         i_c = i_c / 255 + 1
         i_d = i_d / 255 + 1
-        # figura = plt.figure(figsize=(8, 5))
-        # plt.imshow(i_a - i_b, cmap='viridis')
-        # plt.colorbar(cmap='viridis')
-        # plt.show()
+
+        figura = plt.figure(figsize=(8, 5))
+
+        figura.add_subplot(231)
+        plt.imshow(i_a, cmap='viridis')
+        plt.title('i_a ; right')
+
+        figura.add_subplot(232)
+        plt.imshow(i_b, cmap='viridis')
+        plt.title('i_b ; left')
+
+        figura.add_subplot(233)
+        plt.imshow(i_a-i_b, cmap='viridis')
+        plt.title('i_b-i_a')
+
+        figura.add_subplot(234)
+        plt.imshow(i_d, cmap='viridis')
+        plt.title('i_d ; right')
+
+        figura.add_subplot(235)
+        plt.imshow(i_c, cmap='viridis')
+        plt.title('i_c ; left')
+
+        figura.add_subplot(236)
+        plt.imshow(i_a - i_b, cmap='viridis')
+        plt.title('i_c-i_d')
+
+        plt.colorbar(cmap='viridis')
+        plt.show()
 
         # restriingimos la division por cero para uqe no nos salte ningun error
         # s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
         # s_dy = (i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
-        s_dx = (i_b - i_a) / (i_a + i_b)
-        s_dy = (i_c - i_d) / (i_c + i_d)
+        'bien pa 04'
+        s_dx = (i_a - i_b) / (i_a + i_b)
+        s_dy = (i_d - i_c) / (i_c + i_d)
+
+        '04 al reves'
+        # s_dx = (i_b - i_a) / (i_a + i_b)
+        # s_dy = (i_c - i_d) / (i_c + i_d)
+
+        'o6 bien'
+        # s_dx = (i_a - i_b) / (i_a + i_b)
+        # s_dy = (i_c - i_d) / (i_c + i_d)
+
+        'o6 bien reves'
+        # s_dx = (i_b - i_a) / (i_a + i_b)
+        # s_dy = (i_d - i_c) / (i_c + i_d)
+
+
 
         # Integración de izquierda a derecha en x
         z_lr = np.cumsum(s_dx * self.dpixel, axis=1)
@@ -502,7 +542,7 @@ class Reconstruccion:
         z_bt = np.flip(z_bt, axis=1)
 
         # Combinación de las integraciones
-        z_combined = (+z_lr - z_rl + z_tb - z_bt) / 4
+        z_combined = (-z_lr + z_rl - z_tb + z_bt) / 4
         self.z=z_combined
         media= z_combined.mean()
         desviacion=z_combined.std()
@@ -512,7 +552,7 @@ class Reconstruccion:
         print(f'la desviacion es {desviacion}')
 
         fig, axs = plt.subplots(1, 1, figsize=(15, 5))
-        cax_0 = axs.imshow(self.z, cmap='hot')
+        cax_0 = axs.imshow(self.z, cmap='plasma')
         fig.colorbar(cax_0, ax=axs, orientation='vertical')
         axs.set_title('Topografía Original')
         axs.axis('off')
@@ -638,7 +678,7 @@ class Reconstruccion:
         # primera figura
         sin_textura = plt.figure()
         axis_1 = sin_textura.add_subplot(111, projection='3d')
-        axis_1.plot_surface(x * self.dpixel, y * self.dpixel, self.z, cmap='hot',shade=True)
+        axis_1.plot_surface(x * self.dpixel, y * self.dpixel, self.z, cmap='plasma',shade=True)
 
         axis_1.set_title('Topografia sin textura')
         # axis_1.set_xlabel('X (mm)')
@@ -656,7 +696,7 @@ class Reconstruccion:
         axis_1.get_proj = lambda: np.dot(Axes3D.get_proj(axis_1), np.diag([1.0, 1.0, 0.4, 1]))
         axis_1.tick_params(axis='both', which='major', labelsize=7)
 
-        mappable = cm.ScalarMappable(cmap=cm.hot)
+        mappable = cm.ScalarMappable(cmap=cm.plasma)
         mappable.set_array(self.z)
         plt.colorbar(mappable, ax=axis_1, orientation='vertical', label='Altura (mm)', shrink=0.5, pad=0.2)
 
@@ -960,6 +1000,13 @@ class Histograma:
 # img_rutas = {'top': 'imagenes/SENOS1-T.BMP', 'bottom': 'imagenes/SENOS1-B.BMP', 'left': 'imagenes/SENOS1-L.BMP',
 #              'right': 'imagenes/SENOS1-R.BMP', 'textura': 'imagenes/SENOS1-S.BMP'}
 
+# img_rutas = {'top': 'imagenes/CIRC1_T.BMP','bottom': 'imagenes/CIRC1_B.BMP','left': 'imagenes/CIRC1_L.BMP','right': 'imagenes/CIRC1_R.BMP','textura': 'imagenes/CIRC1.BMP'}
+
+# img_rutas = {'top': 'imagenes/RUEDA1_T.BMP','bottom': 'imagenes/RUEDA1_B.BMP','left': 'imagenes/RUEDA1_L.BMP','right': 'imagenes/RUEDA1_R.BMP','textura': 'imagenes/RUEDA1_S.BMP'}
+# img_rutas = {'top': 'imagenes/RUEDA3_T.BMP','bottom': 'imagenes/RUEDA3_B.BMP','left': 'imagenes/RUEDA3_L.BMP','right': 'imagenes/RUEDA3_R.BMP','textura': 'imagenes/RUEDA3.BMP'}
+
+
+
 # img_rutas = {'top': 'imagenes/4-C-T.BMP', 'bottom': 'imagenes/4-C-B.BMP', 'left': 'imagenes/4-C-L.BMP',
 #              'right': 'imagenes/4-C-R.BMP', 'textura': 'imagenes/4-C-S.BMP'}
 
@@ -974,12 +1021,12 @@ class Histograma:
 # img_rutas = {'top': 'imagenes/RUEDA3_T.BMP','bottom': 'imagenes/RUEDA3_B.BMP','left': 'imagenes/RUEDA3_L.BMP','right': 'imagenes/RUEDA3_R.BMP','textura': 'imagenes/RUEDA3.BMP'}
 
 #
-# img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'left': 'calibrado/0_4-L.BMP',
-#              'right': 'calibrado/0_4-R.BMP', 'textura': 'calibrado/0_4-S.BMP'}
+img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'left': 'calibrado/0_4-L.BMP',
+             'right': 'calibrado/0_4-R.BMP', 'textura': 'calibrado/0_4-S.BMP'}
 
 
-img_rutas = {'top': 'calibrado/0_6-T.BMP', 'bottom': 'calibrado/0_6-B.BMP', 'left': 'calibrado/0_6-L.BMP',
-             'right': 'calibrado/0_6-R.BMP', 'textura': 'calibrado/0_6-S.BMP'}
+# img_rutas = {'top': 'calibrado/0_6-T.BMP', 'bottom': 'calibrado/0_6-B.BMP', 'left': 'calibrado/0_6-L.BMP',
+#              'right': 'calibrado/0_6-R.BMP', 'textura': 'calibrado/0_6-S.BMP'}
 
 # plt.ion()
 
@@ -996,7 +1043,7 @@ procesar = Procesarimagenes(cargar)
 reconstruir = Reconstruccion(cargar)
 contornear = Contornos(reconstruir)
 perfil=contornear.contornear_y(pos_x=550)
-# perfi=contornear.contornear_x(pos_y=600)
+perfi=contornear.contornear_x(pos_y=600)
 
 
 '''
