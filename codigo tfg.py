@@ -1,5 +1,6 @@
 import cv2
 import matplotlib
+import sns
 from mpl_toolkits.mplot3d import Axes3D
 matplotlib.use('TkAgg')
 from scipy.integrate import cumulative_trapezoid, trapezoid
@@ -13,23 +14,15 @@ from numpy.fft import fft2, fftshift, ifft2, ifftshift
 from skimage.metrics import structural_similarity as ssim
 from skimage.metrics import peak_signal_noise_ratio as psnr
 from scipy import linalg
-from skimage import io, exposure
-# import numpy as np
-from scipy.optimize import minimize,check_grad
-from scipy.integrate import cumulative_trapezoid
-from scipy.optimize import basinhopping
-# from mayavi import mlab
 import time
+from scipy.sparse import lil_matrix, csr_matrix
+from scipy.sparse.linalg import cg
+
 # import scienceplots
-# plt.rc('text', usetex=True)  # Activar el uso de LaTeX
-# plt.rc('font', family='serif')  # Usar fuente tipo serif
-
-
 # plt.style.use(['science', 'grid'])
 # plt.style.use('science')
-# plt.rc('text', usetex=True)
-# plt.rc('text.latex', preamuble=r'\usepackage{cm-super}')
-# Si deseas personalizar aún más, puedes ajustar el rcParams
+
+
 # plt.rcParams.update({
 #     'font.size': 12,
 #     'axes.titlesize': 14,
@@ -42,13 +35,8 @@ import time
 #     'figure.dpi': 300
 # })
 
-#
-# plt.style.use('science')
-# plt.style.use(['science','notebook'])
-
-# import seaborn as sns  # Seaborn para una paleta de colores más atractiva
 # plt.style.use('bmh')
-# Aplicar el estilo 'notebook' con un toque de ggplot
+# notebook con un toqucito de ggplot a ver q tal
 # plt.style.use(['seaborn-notebook', 'ggplot'])
 # plt.style.use('ggplot')
 
@@ -65,14 +53,7 @@ import time
 #     'grid.alpha': 0.5,    # Transparencia de la cuadrícula
 #     'grid.linestyle': '--', # Estilo de la línea de la cuadrícula
 # })
-# plt.style.use(['science', 'grid'])
-# from scipy.sparse import lil_matrix
-# from scipy.sparse import coo_matrix
-# from scipy.sparse.linalg import spsolve
-#
-# from scipy.optimize import minimize
-# from scipy.spatial.distance import cdist
-# from sklearn.metrics import mean_squared_error, mean_absolute_error
+
 class Cargarimagenes:
     def __init__(self, img_rutas):
         # self.img_rutas = img_rutas
@@ -414,170 +395,154 @@ class Metodosaplanacion:
 class Reconstruccion:
     def __init__(self,datos):
         self.datos = datos
-        # self.dpixel = 500/251
-        # self.dpixel = 1 / 251
-        self.dpixel = 0.9598 #pixels/um
-        # calibracion 04 --> a'=a*0.8536
 
-        "funciones"
-        # self.integracion(85.36,100,0)
-        # self.integrar_bidireccional(1,1,0)
-        self.integrar_poisson_con_gradientes()
+        "Calibración"
+        # self.dpixel = 1 / 251 # piezas bj (primera sesion)
+        # self.dpixel = 500/251 # piezas FDM (15 abril)
+        self.dpixel = 0.9598 #pixels/um #calibracion
+        # calibracion (04 --> a'=a*0.853) ! 06 -->
 
+        'Gradientes --> siempre activa'
+        self.calculo_gradientes(eps=1e-5, ver=True)
+
+        "Tipos de integración de gradientes"
+        # self.integracion(c=85.36, d=100, z0=0, ver=True)
+        # self.integrar_bidireccional(c=85.36, d=100, z0=0, ver=True)
+        self.integrar_poisson_con_gradientes(1,1,0,ver=True)
+
+        "Tipos de corrección (desviación planar)"
         # self.corregir_plano()
         self.corregir_polinomio()
+
+        "Reconstrucción y visualizador 3D"
         self.plot_superficie(ver_textura=True)
-    def integracion(self, c, d, z0, eps=1e-5):
+
+    def calculo_gradientes(self, eps=1e-5, ver=True):
+        '''
+        Funcion que calcula los gradientes independientemente del uso posterior.
+        :param c: factor de calibracion
+        :param d: factor de calibracion
+        :param z0: donde empezar --> da totalmente igual
+        :param eps: restricccion de /0
+        :param ver: ver los gradientes en mapa de calor
+        :return:
+        '''
         # print(self.img_dict)
 
+        # extraemos los datos del diccionario con nomenclatura de acuerdo al paper 'palusky2008'
         i_a = self.datos.img_dict['right'].astype(np.float32)
         i_b = self.datos.img_dict['left'].astype(np.float32)
         i_c = self.datos.img_dict['top'].astype(np.float32)
         i_d = self.datos.img_dict['bottom'].astype(np.float32)
-        figura=plt.figure(figsize=(8,5))
-        plt.imshow(i_a-i_b, cmap='viridis')
-        plt.colorbar(cmap='viridis')
-        plt.show()
-        # i_a=i_a/255+1
-        # i_b=i_b/255+1
-        # i_c=i_c/255+1
-        # i_d=i_d/255+1
-
         # print(i_a.dtype)
-        # restriingimos la division por cero para uqe no nos salte ningun error
-        s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
-        s_dy = (i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
 
-        # s_dx = (i_a - i_b) / (i_a+i_b)
-        # s_dy = (i_d - i_c) / (i_c+i_d)
+        # cálculo de los gradientes con restriccion de 0 (aunque ya nunca sucede /0, en mis primeras pruebas si)
+        self.s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
+        self.s_dy = (i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
+
+        if ver:
+            figs=[i_a, i_b,i_a - i_b, i_d, i_c, i_a - i_b]
+            titulos=['i_a', 'i_b','i_b - i_a', 'i_d','i_c', 'i_d - i_c']
+            fig_grad=plt.figure(figsize=(8,5))
+            for i in range(6):
+                axs=fig_grad.add_subplot(2,3,i+1) # misma sintaxis que para hist
+                plot=axs.imshow(figs[i],cmap='viridis')
+                axs.set_title([titulos[i]])
+                axs.axis('off')
+            fig_grad.colorbar(plot,ax=axs,orientation='vertical')
+            plt.show()
 
 
-        z_x = cumulative_trapezoid(s_dx * c / d, dx=self.dpixel, axis=1, initial=z0)
-        z_y = cumulative_trapezoid(s_dy * c / d, dx=self.dpixel, axis=0, initial=z0)
 
+    def integracion(self,c,d,z0, ver=True):
+
+        # integramos los gradientes segun el metodo acumulativo de los trapecios
+        z_x = cumulative_trapezoid(self.s_dx * c / d, dx=self.dpixel, axis=1, initial=z0)
+        z_y = cumulative_trapezoid(self.s_dy * c / d, dx=self.dpixel, axis=0, initial=z0)
 
         # z_x = trapezoid(s_dx*c/d,dx=self.dpixel,axis=0)
         # z_y = trapezoid(s_dy,dx=self.dpixel,axis=1)
 
         self.z = z_x + z_y  # ahora self.z ya no es None
 
+        # metricas que no nos dicen mucho a no ser que sepamos que estamos trabajando con una superficie totalmente plana
         media = self.z.mean()
         desviacion = self.z.std()
         print('\n Valores integracion (cumtrapz): \n --------------\n')
         print(f'Valor medio: {media}')
         print(f'Desviacion: {desviacion}')
 
-    def integrar_bidireccional(self,c,d,z0, eps=1e-5):
-        i_a = self.datos.img_dict['right'].astype(np.float32)
-        # print(i_a.dtype)
-        i_b = self.datos.img_dict['left'].astype(np.float32)
-        i_c = self.datos.img_dict['top'].astype(np.float32)
-        i_d = self.datos.img_dict['bottom'].astype(np.float32)
-        # totalmente innecesario esto:
-        # i_a = i_a / 255
-        # i_b = i_b / 255
-        # i_c = i_c / 255
-        # i_d = i_d / 255
+        if ver:
+            fig = plt.figure(figsize=(5, 3))
+            ax=fig.add_subplot(111, projection='3d')
+            img = ax.imshow(self.z, cmap='plasma')
+            fig.colorbar(img, ax=ax, orientation='vertical')
+            ax.set_title('Topografía (mapa de calor)')
+            ax.axis('off')
 
-        print(i_a.shape)
 
-        figura = plt.figure(figsize=(8, 5))
-
-        figura.add_subplot(231)
-        plt.imshow(i_a, cmap='viridis')
-        plt.title('i_a ; right')
-
-        figura.add_subplot(232)
-        plt.imshow(i_b, cmap='viridis')
-        plt.title('i_b ; left')
-
-        figura.add_subplot(233)
-        plt.imshow(i_a-i_b, cmap='viridis')
-        plt.title('i_b-i_a')
-
-        figura.add_subplot(234)
-        plt.imshow(i_d, cmap='viridis')
-        plt.title('i_d ; right')
-
-        figura.add_subplot(235)
-        plt.imshow(i_c, cmap='viridis')
-        plt.title('i_c ; left')
-
-        figura.add_subplot(236)
-        plt.imshow(i_a - i_b, cmap='viridis')
-        plt.title('i_c-i_d')
-
-        plt.colorbar(cmap='viridis')
-        plt.show()
-
-        # restriingimos la division por cero para uqe no nos salte ningun error
-        s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
-        s_dy = (i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
+    def integrar_bidireccional(self,c,d,z0, ver=True):
+        '''
+        Funcion que integra bidireccionarlmente los gradientes,
+        a partir de ensayo y error, por la variabilidad de los detectores:
         'bien pa 04'
         # s_dx = (i_a - i_b) / (i_a + i_b)
         # s_dy = (i_d - i_c) / (i_c + i_d)
 
-        '04 al reves'
+        # '04 al reves'
         # s_dx = (i_b - i_a) / (i_a + i_b)
         # s_dy = (i_c - i_d) / (i_c + i_d)
 
-        'o6 bien'
+        # 'o6 bien'
         # s_dx = (i_a - i_b) / (i_a + i_b)
         # s_dy = (i_c - i_d) / (i_c + i_d)
 
-        'o6 bien reves'
+        # '06 reves'
         # s_dx = (i_b - i_a) / (i_a + i_b)
         # s_dy = (i_d - i_c) / (i_c + i_d)
-
-
+        :return: self.z --> alturas de la reconstruccion
+        '''
 
         # Integración de izquierda a derecha en x
-        z_lr = np.cumsum(s_dx * self.dpixel, axis=1)
+        z_lr = np.cumsum(self.s_dx * self.dpixel * c/d, axis=1)
         z_lr=np.flip(z_lr,axis=0)
         # Integración de derecha a izquierda en x (invierte la matriz, integra, y luego invierte el resultado)
-        z_rl = np.cumsum(np.flip(s_dx, axis=1) * self.dpixel, axis=1)
+        z_rl = np.cumsum(np.flip(self.s_dx, axis=1) * self.dpixel * c/d, axis=1)
         z_rl = np.flip(z_rl, axis=0)
 
         # Integración de arriba a abajo en y
-        z_tb = np.cumsum(s_dy * self.dpixel, axis=0)
+        z_tb = np.cumsum(self.s_dy * self.dpixel * c/d, axis=0)
         z_tb = np.flip(z_tb, axis=1)
         # Integración de abajo hacia arriba en y (invierte la matriz, integra, y luego invierte el resultado)
-        z_bt = np.cumsum(np.flip(s_dy, axis=0) * self.dpixel, axis=0)
+        z_bt = np.cumsum(np.flip(self.s_dy, axis=0) * self.dpixel * c/d, axis=0)
         z_bt = np.flip(z_bt, axis=1)
 
-        # Combinación de las integraciones
-        z_combined = (-z_lr + z_rl - z_tb + z_bt) / 4
-        self.z=z_combined
-        media= z_combined.mean()
-        desviacion=z_combined.std()
+        # combinamos en self.z
+        self.z = (-z_lr + z_rl - z_tb + z_bt) / 4
+
+        media= self.z.mean()
+        desviacion=self.z.std()
 
         print('\n Valores integracion (bidireccional;cumsum): \n --------------\n')
         print(f'la media es {media}')
         print(f'la desviacion es {desviacion}')
 
-        fig, axs = plt.subplots(1, 1, figsize=(15, 5))
-        cax_0 = axs.imshow(self.z, cmap='plasma')
-        fig.colorbar(cax_0, ax=axs, orientation='vertical')
-        axs.set_title('Topografía Original')
-        axs.axis('off')
+        if ver:
+            fig = plt.figure(figsize=(5, 3))
+            ax=fig.add_subplot(111, projection='3d')
+            img = ax.imshow(self.z, cmap='plasma')
+            fig.colorbar(img, ax=ax, orientation='vertical')
+            ax.set_title('Topografía (mapa de calor)')
+            ax.axis('off')
 
-        return self.z
+        # return self.z
 
-    def integrar_poisson_con_gradientes(self, c=1, d=1, eps=1e-5):
+    def integrar_poisson_con_gradientes(self, c, d, eps=1e-5,ver=True):
         start_time=time.time()
-        from scipy.sparse import lil_matrix, csr_matrix
-        from scipy.sparse.linalg import cg
-        # Extracción de imágenes del diccionario de datos
-        i_a = self.datos.img_dict['right'].astype(np.float32)
-        i_b = self.datos.img_dict['left'].astype(np.float32)
-        i_c = self.datos.img_dict['top'].astype(np.float32)
-        i_d = self.datos.img_dict['bottom'].astype(np.float32)
 
+        i_a = self.datos.img_dict['right'].astype(np.float32)
         ny, nx = i_a.shape
 
-        # Cálculo de gradientes
-        s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
-        s_dy = (i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
 
         # Preparar sistema lineal para la integración de Poisson
         N = ny * nx
@@ -588,8 +553,8 @@ class Reconstruccion:
         for j in range(ny):
             for i in range(nx):
                 index = j * nx + i
-                b[index] = -((s_dx[j, i] if i < nx - 1 else 0) - (s_dx[j, i-1] if i > 0 else 0) +
-                             (s_dy[j, i] if j < ny - 1 else 0) - (s_dy[j-1, i] if j > 0 else 0))
+                b[index] = -((self.s_dx[j, i] if i < nx - 1 else 0) - (self.s_dx[j, i-1] if i > 0 else 0) +
+                             (self.s_dy[j, i] if j < ny - 1 else 0) - (self.s_dy[j-1, i] if j > 0 else 0))
 
                 if i > 0:
                     A[index, index - 1] = -1
@@ -607,30 +572,33 @@ class Reconstruccion:
         # Resolver sistema lineal usando el método del Gradiente Conjugado
         z_vector, _ = cg(A_csr, b)
         z = z_vector.reshape(ny, nx)
-        end_time = time.time()
-        print(f"Tiempo de ejecución: {end_time - start_time} segundos")
         self.z=z
-        return z
+
+        end_time = time.time()
+        print(f"Tiempo de ejecución de la integración de poisson: {end_time - start_time} segundos")
+
+        # return self.z
 
     def corregir_plano(self):
         z = self.z
-        # Creamos una malla de coordenadas basada en la topografía
+
+        #mallado en funcion de z
         x_index, y_index = np.indices(z.shape)
 
-        # Preparamos la matriz de diseño para la regresión lineal múltiple, incluyendo un término constante
+        # aplanamos la malla para la regresión lineal
         X = np.stack((x_index.ravel(), y_index.ravel(), np.ones_like(x_index).ravel()), axis=-1)
 
-        # Vector de topografía (variable respuesta)
+        # variable respuesta -->
         Y = z.ravel()
 
-        # Ajustamos el modelo lineal (plano) a los datos
-        coeficientes, residuals, rank, s = linalg.lstsq(X, Y)
+        # ajustamos el plano a los datos
+        coeficientes, residuos, rank, s = linalg.lstsq(X, Y)
 
-        # Calculamos el plano estimado usando los coeficientes obtenidos
+        # calculamos el plano estimado usando coeficientes
         plano_estimado = X @ coeficientes
         plano_estimado = plano_estimado.reshape(z.shape)
 
-        # Restamos el plano estimado de la topografía original para corregir la inclinación
+        # restamos el plano estimado de la topografía original para corregir la inclinación --> ojo que dependiendo de los detectores --> gradientes igual hay que sumarlo
         z_corregido = z - plano_estimado
         # z_corregido = z + plano_estimado
         self.z = z_corregido
@@ -658,11 +626,11 @@ class Reconstruccion:
 
         plt.show()
 
-        # Imprimir métricas
+        # métricas
 
         print('\n Valores correccion desviacion planar (plano): \n --------------\n')
         print("Coeficientes del plano:", coeficientes)
-        print("Suma de residuos cuadrados:", residuals)
+        print("Suma de residuos cuadrados:", residuos)
 
         # Calcular métricas adicionales
         mse = np.mean((z - z_corregido) ** 2)
@@ -670,7 +638,9 @@ class Reconstruccion:
         print("Mean Squared Error (MSE):", mse)
         print("Mean Absolute Error (MAE):", mae)
 
-        # return z_corregido, plano_estimado, residuals, coeficientes
+        # return z_corregido, plano_estimado, residuos, coeficientes
+
+
     def corregir_polinomio(self, grado=2):
         z = self.z
         x_index, y_index = np.indices(z.shape)
@@ -724,6 +694,7 @@ class Reconstruccion:
         print("Mean Absolute Error (MAE):", mae)
         self.z=z_corregido
         # return z_corregido, z_estimado, coeficientes, mse, mae
+
 
     def plot_superficie(self, ver_textura=True):
         # plt.ion()
@@ -1102,8 +1073,8 @@ procesar = Procesarimagenes(cargar)
 reconstruir = Reconstruccion(cargar)
 contornear = Contornos(reconstruir)
 perfil=contornear.contornear_y(pos_x=480)
-# perfi=contornear.contornear_x(pos_y=640)
-perfi=contornear.contornear_x(pos_y=200)
+perfi=contornear.contornear_x(pos_y=640)
+# perfi=contornear.contornear_x(pos_y=200)
 perfi=contornear.pilacontornos_x(20)
 
 
