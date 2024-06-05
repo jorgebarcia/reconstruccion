@@ -13,13 +13,13 @@ from numpy.fft import fft2, fftshift, ifft2, ifftshift
 from skimage.metrics import structural_similarity as ssim
 from skimage.metrics import peak_signal_noise_ratio as psnr
 from scipy import linalg
-
+from skimage import io, exposure
 # import numpy as np
 from scipy.optimize import minimize,check_grad
 from scipy.integrate import cumulative_trapezoid
 from scipy.optimize import basinhopping
 # from mayavi import mlab
-
+import time
 # import scienceplots
 # plt.rc('text', usetex=True)  # Activar el uso de LaTeX
 # plt.rc('font', family='serif')  # Usar fuente tipo serif
@@ -46,7 +46,7 @@ from scipy.optimize import basinhopping
 # plt.style.use('science')
 # plt.style.use(['science','notebook'])
 
-import seaborn as sns  # Seaborn para una paleta de colores más atractiva
+# import seaborn as sns  # Seaborn para una paleta de colores más atractiva
 # plt.style.use('bmh')
 # Aplicar el estilo 'notebook' con un toque de ggplot
 # plt.style.use(['seaborn-notebook', 'ggplot'])
@@ -421,8 +421,8 @@ class Reconstruccion:
 
         "funciones"
         # self.integracion(85.36,100,0)
-        self.integrar_bidireccional(1,1,0)
-        # self.integracion_variacional()
+        # self.integrar_bidireccional(1,1,0)
+        self.integrar_poisson_con_gradientes()
 
         # self.corregir_plano()
         self.corregir_polinomio()
@@ -438,22 +438,23 @@ class Reconstruccion:
         plt.imshow(i_a-i_b, cmap='viridis')
         plt.colorbar(cmap='viridis')
         plt.show()
-        i_a=i_a/255+1
-        i_b=i_b/255+1
-        i_c=i_c/255+1
-        i_d=i_d/255+1
+        # i_a=i_a/255+1
+        # i_b=i_b/255+1
+        # i_c=i_c/255+1
+        # i_d=i_d/255+1
 
         # print(i_a.dtype)
         # restriingimos la division por cero para uqe no nos salte ningun error
-        # s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
-        # s_dy = (i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
+        s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
+        s_dy = (i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
 
-        s_dx = (i_a - i_b) / (i_a+i_b)
-        s_dy = (i_d - i_c) / (i_c+i_d)
+        # s_dx = (i_a - i_b) / (i_a+i_b)
+        # s_dy = (i_d - i_c) / (i_c+i_d)
 
 
         z_x = cumulative_trapezoid(s_dx * c / d, dx=self.dpixel, axis=1, initial=z0)
         z_y = cumulative_trapezoid(s_dy * c / d, dx=self.dpixel, axis=0, initial=z0)
+
 
         # z_x = trapezoid(s_dx*c/d,dx=self.dpixel,axis=0)
         # z_y = trapezoid(s_dy,dx=self.dpixel,axis=1)
@@ -472,10 +473,13 @@ class Reconstruccion:
         i_b = self.datos.img_dict['left'].astype(np.float32)
         i_c = self.datos.img_dict['top'].astype(np.float32)
         i_d = self.datos.img_dict['bottom'].astype(np.float32)
-        i_a = i_a / 255 + 1
-        i_b = i_b / 255 + 1
-        i_c = i_c / 255 + 1
-        i_d = i_d / 255 + 1
+        # totalmente innecesario esto:
+        # i_a = i_a / 255
+        # i_b = i_b / 255
+        # i_c = i_c / 255
+        # i_d = i_d / 255
+
+        print(i_a.shape)
 
         figura = plt.figure(figsize=(8, 5))
 
@@ -507,11 +511,11 @@ class Reconstruccion:
         plt.show()
 
         # restriingimos la division por cero para uqe no nos salte ningun error
-        # s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
-        # s_dy = (i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
+        s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
+        s_dy = (i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
         'bien pa 04'
-        s_dx = (i_a - i_b) / (i_a + i_b)
-        s_dy = (i_d - i_c) / (i_c + i_d)
+        # s_dx = (i_a - i_b) / (i_a + i_b)
+        # s_dy = (i_d - i_c) / (i_c + i_d)
 
         '04 al reves'
         # s_dx = (i_b - i_a) / (i_a + i_b)
@@ -559,6 +563,55 @@ class Reconstruccion:
 
         return self.z
 
+    def integrar_poisson_con_gradientes(self, c=1, d=1, eps=1e-5):
+        start_time=time.time()
+        from scipy.sparse import lil_matrix, csr_matrix
+        from scipy.sparse.linalg import cg
+        # Extracción de imágenes del diccionario de datos
+        i_a = self.datos.img_dict['right'].astype(np.float32)
+        i_b = self.datos.img_dict['left'].astype(np.float32)
+        i_c = self.datos.img_dict['top'].astype(np.float32)
+        i_d = self.datos.img_dict['bottom'].astype(np.float32)
+
+        ny, nx = i_a.shape
+
+        # Cálculo de gradientes
+        s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
+        s_dy = (i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
+
+        # Preparar sistema lineal para la integración de Poisson
+        N = ny * nx
+        A = lil_matrix((N, N))
+        b = np.zeros(N)
+
+        # Rellenar la matriz A y el vector b
+        for j in range(ny):
+            for i in range(nx):
+                index = j * nx + i
+                b[index] = -((s_dx[j, i] if i < nx - 1 else 0) - (s_dx[j, i-1] if i > 0 else 0) +
+                             (s_dy[j, i] if j < ny - 1 else 0) - (s_dy[j-1, i] if j > 0 else 0))
+
+                if i > 0:
+                    A[index, index - 1] = -1
+                if i < nx - 1:
+                    A[index, index + 1] = -1
+                if j > 0:
+                    A[index, index - nx] = -1
+                if j < ny - 1:
+                    A[index, index + nx] = -1
+                A[index, index] = 4
+
+        # Convertir a CSR para la solución eficiente del sistema
+        A_csr = A.tocsr()
+
+        # Resolver sistema lineal usando el método del Gradiente Conjugado
+        z_vector, _ = cg(A_csr, b)
+        z = z_vector.reshape(ny, nx)
+        end_time = time.time()
+        print(f"Tiempo de ejecución: {end_time - start_time} segundos")
+        self.z=z
+        return z
+
     def corregir_plano(self):
         z = self.z
         # Creamos una malla de coordenadas basada en la topografía
@@ -579,6 +632,7 @@ class Reconstruccion:
 
         # Restamos el plano estimado de la topografía original para corregir la inclinación
         z_corregido = z - plano_estimado
+        # z_corregido = z + plano_estimado
         self.z = z_corregido
 
         # Mostrar resultados
@@ -638,6 +692,7 @@ class Reconstruccion:
 
         # Calcular la topografía corregida
         z_corregido = z - z_estimado
+        # z_corregido = z + z_estimado
 
         # Calcular errores
         mse = np.mean((z - z_estimado) ** 2)
@@ -740,9 +795,6 @@ class Reconstruccion:
             plt.colorbar(mappable_gray, ax=axis_2, orientation='vertical', label='Intensidad', shrink=0.5, pad=0.2)
 
             plt.show()
-
-
-
 
 
 class Contornos:
@@ -951,6 +1003,7 @@ class Histograma:
                 # histograma
                 ax_hist = histo_canva.add_subplot(4, 3, 3 * i + 2)
                 sns.hist = ax_hist.hist(image.ravel(), bins=256, range=[10, 254], color='#3F5D7D', alpha=0.75)
+                # ax_hist.hist(image.ravel(), bins=256, range=[10, 254], color='#3F5D7D', alpha=0.75)
                 ax_hist.tick_params(axis='both', which='major', labelsize=7)
                 # ax_hist.grid(False)
                 ax_hist.set_title(f'Histograma {key}',fontsize=8, fontweight='bold')
@@ -997,8 +1050,8 @@ class Histograma:
                 break
 
 #
-# img_rutas = {'top': 'imagenes/SENOS1-T.BMP', 'bottom': 'imagenes/SENOS1-B.BMP', 'left': 'imagenes/SENOS1-L.BMP',
-#              'right': 'imagenes/SENOS1-R.BMP', 'textura': 'imagenes/SENOS1-S.BMP'}
+img_rutas = {'top': 'imagenes/SENOS1-T.BMP', 'bottom': 'imagenes/SENOS1-B.BMP', 'left': 'imagenes/SENOS1-L.BMP',
+             'right': 'imagenes/SENOS1-R.BMP', 'textura': 'imagenes/SENOS1-S.BMP'}
 
 # img_rutas = {'top': 'imagenes/CIRC1_T.BMP','bottom': 'imagenes/CIRC1_B.BMP','left': 'imagenes/CIRC1_L.BMP','right': 'imagenes/CIRC1_R.BMP','textura': 'imagenes/CIRC1.BMP'}
 
@@ -1009,6 +1062,10 @@ class Histograma:
 
 # img_rutas = {'top': 'imagenes/4-C-T.BMP', 'bottom': 'imagenes/4-C-B.BMP', 'left': 'imagenes/4-C-L.BMP',
 #              'right': 'imagenes/4-C-R.BMP', 'textura': 'imagenes/4-C-S.BMP'}
+# 'modificando nombres...'
+# img_rutas = {'top': 'imagenes/4-C-B.BMP', 'bottom': 'imagenes/4-C-T.BMP', 'left': 'imagenes/4-C-L.BMP',
+#              'right': 'imagenes/4-C-R.BMP', 'textura': 'imagenes/4-C-S.BMP'}
+
 
 # img_rutas = {'top': 'imagenes/6-C-T.BMP', 'bottom': 'imagenes/6-C-B.BMP', 'left': 'imagenes/6-C-L.BMP',
 #              'right': 'imagenes/6-C-R.BMP', 'textura': 'imagenes/6-C-S.BMP'}
@@ -1021,11 +1078,13 @@ class Histograma:
 # img_rutas = {'top': 'imagenes/RUEDA3_T.BMP','bottom': 'imagenes/RUEDA3_B.BMP','left': 'imagenes/RUEDA3_L.BMP','right': 'imagenes/RUEDA3_R.BMP','textura': 'imagenes/RUEDA3.BMP'}
 
 #
-img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'left': 'calibrado/0_4-L.BMP',
-             'right': 'calibrado/0_4-R.BMP', 'textura': 'calibrado/0_4-S.BMP'}
+# img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'left': 'calibrado/0_4-L.BMP',
+#              'right': 'calibrado/0_4-R.BMP', 'textura': 'calibrado/0_4-S.BMP'} #son 950 x 1280 pixeles
 
 
 # img_rutas = {'top': 'calibrado/0_6-T.BMP', 'bottom': 'calibrado/0_6-B.BMP', 'left': 'calibrado/0_6-L.BMP',
+#              'right': 'calibrado/0_6-R.BMP', 'textura': 'calibrado/0_6-S.BMP'}
+# img_rutas = {'top': 'calibrado/0_6-B.BMP', 'bottom': 'calibrado/0_6-T.BMP', 'left': 'calibrado/0_6-L.BMP',
 #              'right': 'calibrado/0_6-R.BMP', 'textura': 'calibrado/0_6-S.BMP'}
 
 # plt.ion()
@@ -1042,8 +1101,10 @@ procesar = Procesarimagenes(cargar)
 #
 reconstruir = Reconstruccion(cargar)
 contornear = Contornos(reconstruir)
-perfil=contornear.contornear_y(pos_x=550)
-perfi=contornear.contornear_x(pos_y=600)
+perfil=contornear.contornear_y(pos_x=480)
+# perfi=contornear.contornear_x(pos_y=640)
+perfi=contornear.contornear_x(pos_y=200)
+perfi=contornear.pilacontornos_x(20)
 
 
 '''
