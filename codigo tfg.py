@@ -407,8 +407,8 @@ class Reconstruccion:
 
         "Tipos de integración de gradientes"
         # self.integracion(c=85.36, d=100, z0=0, ver=True)
-        # self.integrar_bidireccional(c=85.36, d=100, z0=0, ver=True)
-        self.integrar_poisson_con_gradientes(1,1,0,ver=True)
+        self.integrar_bidireccional(c=85.36, d=100, z0=0, ver=True)
+        # self.integrar_poisson_con_gradientes(1,1,0,ver=True)
 
         "Tipos de corrección (desviación planar)"
         # self.corregir_plano()
