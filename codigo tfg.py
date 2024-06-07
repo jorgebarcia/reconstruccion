@@ -100,6 +100,79 @@ class Procesarimagenes:
         self.filtro(ver=False)
         # self.aplicar_fourier(ver=False)
         # self.filtro(ver=False)
+        # self.aplicar_filtro_pasa_bajas()
+        # self.aplicar_correccion_planar()
+
+    def aplicar_filtro_pasa_bajas(self, sigma=50, ver=False):
+        '''
+        Aplica un filtro gaussiano a nuestras imágenes para suavizarlas.
+        '''
+        print("\nAplicando filtro pasa bajas...\n")
+        img_dict_filtrada = {}  # Diccionario auxiliar para las imágenes filtradas
+        for key, image in self.datos.img_dict.items():
+            if key != 'textura':  # No aplicar a la textura
+                img_filtrada = gaussian_filter(image, sigma=sigma)
+                img_dict_filtrada[key + '_filtrada'] = img_filtrada  # Guardar las imágenes filtradas
+
+                if ver:
+                    plt.figure(figsize=(8, 4))
+                    plt.subplot(121)
+                    plt.imshow(image, cmap='gray')
+                    plt.title(f'Original {key}')
+                    plt.axis('off')
+
+                    plt.subplot(122)
+                    plt.imshow(img_filtrada, cmap='gray')
+                    plt.title(f'Filtrada {key}')
+                    plt.axis('off')
+                    plt.show()
+
+        # Actualizar el diccionario original con las imágenes filtradas
+        self.datos.img_dict.update(img_dict_filtrada)
+
+    def aplicar_correccion_planar(self):
+        '''
+        Aplica corrección planar a las imágenes usando matrices de coeficientes correctores.
+        '''
+        print("\nAplicando corrección de desviación planar...\n")
+
+        # Cálculo de las intensidades iniciales en el centro (0,0) de las imágenes filtradas
+        intensidades_centro = {key: image[0, 0] for key, image in self.datos.img_dict.items() if '_filtrada' in key}
+        suma_intensidades_centro = sum(intensidades_centro.values())
+
+        img_dict_corregida = {}  # Diccionario auxiliar para las imágenes corregidas
+        for key, image in self.datos.img_dict.items():
+            if 'filtrada' not in key and key != 'textura':  # No corregir la textura ni las imágenes ya filtradas
+                imagen_filtrada = self.datos.img_dict[key + '_filtrada']
+                intensidad_centro = intensidades_centro[key + '_filtrada']
+
+                # Calcular la matriz de coeficientes de corrección
+                kappa_i = (intensidad_centro / (imagen_filtrada + np.finfo(float).eps)) * (
+                            suma_intensidades_centro / (4 * intensidad_centro))
+
+                # Aplicar la corrección a la imagen original
+                imagen_corregida = image * kappa_i
+
+                # Guardar la imagen corregida en el diccionario auxiliar
+                img_dict_corregida[key + '_corregida'] = imagen_corregida.astype(np.uint8)
+
+                print(f'Corrección aplicada a {key}')
+
+                # Visualización opcional
+                plt.figure(figsize=(8, 4))
+                plt.subplot(121)
+                plt.imshow(image, cmap='gray')
+                plt.title(f'Original {key}')
+                plt.axis('off')
+
+                plt.subplot(122)
+                plt.imshow(imagen_corregida, cmap='gray')
+                plt.title(f'Corregida {key}')
+                plt.axis('off')
+                plt.show()
+
+        # Actualizar el diccionario original con las imágenes corregidas
+        self.datos.img_dict.update(img_dict_corregida)
 
     def nivel_ruido(self):
         '''
@@ -422,16 +495,15 @@ class Reconstruccion:
         self.calculo_gradientes(1,1,eps=1e-5, ver=False) #c=85.36, d=100
 
         "Tipos de integración de gradientes"
-        # self.integracion( z0=0, ver=True)
-        # self.integrar_bidireccional( z0=0, ver=True)
+        self.integracion( z0=0)
+        # self.integrar_bidireccional( z0=0)
+        # self.integrar_bidireccional_mal(0)
+        # self.integrar_cuatro_direcciones(0)
         # self.integrar_poisson()
         # self.integrar_poisson_bicgstab()
         # self.integrar_poisson_spsolve()
         # self.integrar_poisson_condiciones()
         # self.integrar_poisson_neumann()
-
-        self.ny, self.nx = self.datos.img_dict['right'].astype(np.float32).shape
-        self.integrar_minima_energia()
 
 
         "Tipos de corrección (desviación planar)"
@@ -460,6 +532,17 @@ class Reconstruccion:
         # cálculo de los gradientes con restriccion de 0 (aunque ya nunca sucede /0, en mis primeras pruebas si)
         self.s_dx = factor * (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
         self.s_dy = factor * (i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
+        # s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
+        # s_dy =(i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
+
+        # c_A = 1.0
+        # c_B = 1.0
+        # d_A = 1.0
+        # d_B = 1.0
+        #
+        #
+        #
+        # self.s_dx= (c_A + c_B) / (d_A + d_B) * S_AB + (c_B - c_A) / (d_A + d_B) * (1 - (d_A - d_B) / (d_A + d_B) * S_AB)
 
         if ver:
             figs=[i_a, i_b,i_a - i_b, i_d, i_c, i_a - i_b]
@@ -540,6 +623,91 @@ class Reconstruccion:
         print(f'la desviacion es {desviacion}')
 
         # return self.z
+
+    def integrar_cuatro_direcciones(self, z0, eps=1e-5):
+        # Dimensiones de la matriz de gradientes
+        h, w = self.s_dx.shape
+
+        # Inicializar la matriz z con tipo de dato de alta precisión
+        z = np.zeros((h, w), dtype=np.float64)
+        z[h // 2, w // 2] = z0
+
+        # Normalizar los gradientes para evitar desbordamientos
+        max_dx = np.max(np.abs(self.s_dx))
+        max_dy = np.max(np.abs(self.s_dy))
+        max_gradient = max(max_dx, max_dy)
+
+        if max_gradient > 0:
+            self.s_dx = self.s_dx / max_gradient
+            self.s_dy = self.s_dy / max_gradient
+
+        # Escalar dpixel para evitar acumulaciones grandes
+        scaled_dpixel = self.dpixel / max_gradient
+
+        # Integración desde el centro hacia la derecha
+        for i in range(h // 2, h):
+            for j in range(w // 2, w):
+                if j > w // 2:
+                    z[i, j] = z[i, j - 1] + self.s_dx[i, j - 1] * scaled_dpixel
+                if i > h // 2:
+                    z[i, j] += (z[i - 1, j] + self.s_dy[i - 1, j] * scaled_dpixel) / 2
+
+        # Integración desde el centro hacia la izquierda
+        for i in range(h // 2, h):
+            for j in range(w // 2 - 1, -1, -1):
+                if j < w // 2 - 1:
+                    z[i, j] = z[i, j + 1] - self.s_dx[i, j] * scaled_dpixel
+                if i > h // 2:
+                    z[i, j] += (z[i - 1, j] + self.s_dy[i - 1, j] * scaled_dpixel) / 2
+
+        # Integración desde el centro hacia abajo
+        for i in range(h // 2 - 1, -1, -1):
+            for j in range(w // 2, w):
+                if j > w // 2:
+                    z[i, j] = z[i, j - 1] + self.s_dx[i, j - 1] * scaled_dpixel
+                if i < h // 2 - 1:
+                    z[i, j] += (z[i + 1, j] - self.s_dy[i, j] * scaled_dpixel) / 2
+
+        # Integración desde el centro hacia arriba
+        for i in range(h // 2 - 1, -1, -1):
+            for j in range(w // 2 - 1, -1, -1):
+                if j < w // 2 - 1:
+                    z[i, j] = z[i, j + 1] - self.s_dx[i, j] * scaled_dpixel
+                if i < h // 2 - 1:
+                    z[i, j] += (z[i + 1, j] - self.s_dy[i, j] * scaled_dpixel) / 2
+
+        self.z = z
+        media = np.nanmean(z)
+        desviacion = np.nanstd(z)
+        print(f'la media es {media}')
+        print(f'la desviacion es {desviacion}')
+
+        return self.z
+
+
+    def integrar_bidireccional_mal(self, z0, eps=1e-5):
+
+        # Integración de izquierda a derecha en x
+        z_lr = np.cumsum(self.s_dx * self.dpixel, axis=1)
+        # Integración de derecha a izquierda en x (invierte la matriz, integra, y luego invierte el resultado)
+        z_rl = np.cumsum(np.flip(self.s_dx, axis=1) * self.dpixel, axis=1)
+        z_rl = np.flip(z_rl, axis=1)
+
+        # Integración de arriba a abajo en y
+        z_tb = np.cumsum(self.s_dy * self.dpixel, axis=0)
+        # Integración de abajo hacia arriba en y (invierte la matriz, integra, y luego invierte el resultado)
+        z_bt = np.cumsum(np.flip(self.s_dy, axis=0) * self.dpixel, axis=0)
+        z_bt = np.flip(z_bt, axis=0)
+
+        # Combinación de las integraciones
+        z_combined = (z_lr + z_rl + z_tb + z_bt) / 4
+        self.z = z_combined
+        media = z_combined.mean()
+        desviacion = z_combined.std()
+        print(f'la media es {media}')
+        print(f'la desviacion es {desviacion}')
+
+        return self.z
 
 
     def integrar_poisson(self):
@@ -674,38 +842,14 @@ class Reconstruccion:
 
         return self.z
 
-    def energia(self, z):
-        """ Calcula la energía total incluyendo la fidelidad de datos y el término de regularización. """
-        z = z.reshape(self.ny, self.nx)
-        gz = np.gradient(z)
-        energia_total = np.sum((self.datos - z) ** 2) + self.alpha * np.sum(gz[0] ** 2 + gz[1] ** 2)
-        return energia_total
 
     def gradiente_energia(self, z):
         """ Calcula el gradiente de la función de energía con respecto a z. """
         z = z.reshape(self.ny, self.nx)
-        grad = np.zeros_like(z)
         gz = np.gradient(z)
-        gzx, gzy = gz
-        grad_gz = np.gradient(gzx)[0] + np.gradient(gzy)[1]
-        grad += -2 * (self.datos - z) + 2 * self.alpha * grad_gz
+        grad_gz = np.gradient(gz[0], axis=0) + np.gradient(gz[1], axis=1)
+        grad = -2 * (self.datos - z) + 2 * self.alpha * grad_gz
         return grad.ravel()
-
-    def integrar_minima_energia(self, alpha=0.1):
-        """ Función para iniciar la optimización utilizando un método adecuado para la minimización. """
-        self.alpha = alpha  # Coeficiente de regularización
-        z_inicial = np.zeros(self.ny * self.nx)  # Valor inicial de z, aplana la matriz inicial
-
-        resultado = minimize(
-            fun=self.energia,
-            x0=z_inicial,
-            method='L-BFGS-B',
-            jac=self.gradiente_energia,
-            options={'disp': True}
-        )
-
-        self.z = resultado.x.reshape(self.ny, self.nx)
-        return self.z
 
 
     def integrar_poisson_bicgstab(self, eps=1e-5):
@@ -1256,8 +1400,8 @@ class Histograma:
                 break
 
 #
-# img_rutas = {'top': 'imagenes/SENOS1-T.BMP', 'bottom': 'imagenes/SENOS1-B.BMP', 'left': 'imagenes/SENOS1-L.BMP',
-#              'right': 'imagenes/SENOS1-R.BMP', 'textura': 'imagenes/SENOS1-S.BMP'}
+img_rutas = {'top': 'imagenes/SENOS1-T.BMP', 'bottom': 'imagenes/SENOS1-B.BMP', 'left': 'imagenes/SENOS1-L.BMP',
+             'right': 'imagenes/SENOS1-R.BMP', 'textura': 'imagenes/SENOS1-S.BMP'}
 
 # img_rutas = {'top': 'imagenes/CIRC1_T.BMP','bottom': 'imagenes/CIRC1_B.BMP','left': 'imagenes/CIRC1_L.BMP','right': 'imagenes/CIRC1_R.BMP','textura': 'imagenes/CIRC1.BMP'}
 
@@ -1269,8 +1413,8 @@ class Histograma:
 # img_rutas = {'top': 'imagenes/4-C-T.BMP', 'bottom': 'imagenes/4-C-B.BMP', 'left': 'imagenes/4-C-L.BMP',
 #              'right': 'imagenes/4-C-R.BMP', 'textura': 'imagenes/4-C-S.BMP'}
 # 'modificando nombres...'
-img_rutas = {'top': 'imagenes/4-C-B.BMP', 'bottom': 'imagenes/4-C-T.BMP', 'left': 'imagenes/4-C-L.BMP',
-             'right': 'imagenes/4-C-R.BMP', 'textura': 'imagenes/4-C-S.BMP'}
+# img_rutas = {'top': 'imagenes/4-C-B.BMP', 'bottom': 'imagenes/4-C-T.BMP', 'left': 'imagenes/4-C-L.BMP',
+#              'right': 'imagenes/4-C-R.BMP', 'textura': 'imagenes/4-C-S.BMP'}
 
 
 # img_rutas = {'top': 'imagenes/6-C-T.BMP', 'bottom': 'imagenes/6-C-B.BMP', 'left': 'imagenes/6-C-L.BMP',
@@ -1285,7 +1429,7 @@ img_rutas = {'top': 'imagenes/4-C-B.BMP', 'bottom': 'imagenes/4-C-T.BMP', 'left'
 
 #
 # img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'left': 'calibrado/0_4-L.BMP',
-#              'right': 'calibrado/0_4-R.BMP', 'textura': 'calibrado/0_4-S.BMP'} #son 950 x 1280 pixeles
+#              'right': 'calibrado/0_4-R.BMP', 'textura': 'calibrado/0_4-S.BMP'} #son 960 x 1280 pixeles
 
 
 # img_rutas = {'top': 'calibrado/0_6-T.BMP', 'bottom': 'calibrado/0_6-B.BMP', 'left': 'calibrado/0_6-L.BMP',
@@ -1308,23 +1452,24 @@ img_rutas = {'top': 'imagenes/4-C-B.BMP', 'bottom': 'imagenes/4-C-T.BMP', 'left'
 
 cargar = Cargarimagenes(img_rutas)
 # histograma = Histograma(cargar)
-procesar = Procesarimagenes(cargar)
+# procesar = Procesarimagenes(cargar)
 ecualizar = Ecualizacion(cargar)
 # histograma = Histograma(cargar)
 # aplanar = Metodosaplanacion(cargar)
 
-# procesar = Procesarimagenes(cargar)
+procesar = Procesarimagenes(cargar)
 #
 #
 reconstruir = Reconstruccion(cargar)
-contornear = Contornos(reconstruir)
-perfil=contornear.contornear_y(pos_x=480)
-perfi=contornear.contornear_x(pos_y=640)
-# perfi=contornear.contornear_x(pos_y=200)
-perfil=contornear.contornear_y(pos_x=0)
-perfil=contornear.contornear_y(pos_x=10)
-perfil=contornear.contornear_y(pos_x=1200)
-perfi=contornear.pilacontornos_x(20)
+
+# contornear = Contornos(reconstruir)
+# perfil=contornear.contornear_y(pos_x=480)
+# perfi=contornear.contornear_x(pos_y=640)
+# # perfi=contornear.contornear_x(pos_y=200)
+# perfil=contornear.contornear_y(pos_x=0)
+# perfil=contornear.contornear_y(pos_x=10)
+# perfil=contornear.contornear_y(pos_x=1200)
+# perfi=contornear.pilacontornos_x(20)
 
 
 '''
