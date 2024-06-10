@@ -18,12 +18,16 @@ import time
 from scipy.sparse import lil_matrix, csr_matrix
 from scipy.sparse.linalg import bicgstab, spsolve
 from scipy.sparse.linalg import cg
-
+from scipy.sparse import diags, kron, eye
+from scipy.sparse.linalg import spsolve
 matplotlib.use('TkAgg')
+from scipy.linalg import solve_sylvester
 # import scienceplots
 # plt.style.use(['science', 'grid'])
 # plt.style.use('science')
-
+from scipy.sparse import diags
+from scipy.sparse.linalg import spsolve
+from scipy.sparse import csc_matrix
 
 # plt.rcParams.update({
 #     'font.size': 12,
@@ -98,7 +102,7 @@ class Procesarimagenes:
         'aplicamos funciones'
         # self.nivel_ruido()
         self.filtro(ver=False)
-        # self.aplicar_fourier(ver=False)
+        self.aplicar_fourier(ver=False)
         # self.filtro(ver=False)
         # self.aplicar_filtro_pasa_bajas()
         # self.aplicar_correccion_planar()
@@ -191,8 +195,8 @@ class Procesarimagenes:
 
         return self.ruido
 
-    # def filtro(self, sigma = 20, ver = True):
-    def filtro(self, sigma=3, ver=True):
+    def filtro(self, sigma = 20, ver = True):
+    # def filtro(self, sigma=5, ver=True):
         '''
         Funcion que aplica un filtro gaussiano a nuestras imagenes
         Sabemos que q el gaussiano se adapta bien por a los histogramas
@@ -366,120 +370,6 @@ class Ecualizacion:
             print(f"Imagen {key} - Mejora de Contraste: {contraste_despues - contraste_antes}")
             print(f"Imagen {key} - Mejora de Entropía: {entropia_despues - entropia_antes} \n")
 
-class Metodosaplanacion:
-    def __init__(self,datos):
-        self.datos = datos
-
-        "funciones"
-        self.aplicar_aplanacion()
-
-    def aplicar_aplanacion(self):
-        for key, image in self.datos.img_dict.items():
-            self.datos.img_dict[key]=self.aplanacion(image)
-
-    def aplanacion(self, image):
-        '''
-        Esta funcion lo que hace es aplanar cada una de las imagenes, para así corregir la desviación planar.
-        aplanarlas, consiste en hacer un ajuste por mínimos cuadrados a cada una de las imagenes para así restarselo
-        y corregir posibles desviaciones de los detectores BSE.
-
-        No funciona bien --> el problema de desviacion planar (inclinacion) sucede en la rep 3D no antes
-
-        Explicacion por que no funciona (2D): restamos f(x)=x a una 'imagen' que es y0=1,y1=2,y2=1. La funcion f
-        es estrictamente creciente, por lo que va incrementar las diferencias estre y1 e y2 --> no es correcto!
-        además si y2- f(2) se convierte en un número negativo, tras la integración obtendremos valores muy poco acertados
-
-        El fallo es ese, por mas que lo intente no conseguí corregirlo aunque la solucion se ve muy facil (suma el valor
-        mas bajo al array y ya está, todo >0 )--> sigue sin funcionar. Parece que la rep3D es bastante
-        acertada pero la escala esta mal
-        '''
-
-        index_y, index_x = np.indices(image.shape)  # obtenemos dos matrices con indices cuya forma=imagen.shape
-        image_flat = image.flatten()  # array.dim=1 (valores planos imagen)
-
-        matriz_sist = np.column_stack((index_x.flatten(), index_y.flatten(), np.ones_like(
-            image_flat)))  # consume mas meemoria pero es mejor --> np.ones((imagen_flat.shape.. size))
-
-        # z=c1*x+c2*y+c0, c0 es np.ones_like ya que son los valores de intensidad aplanados
-        # A es una matriz que cada fila representa un punto x,y + un termino intependiente
-        'realizamos el ajuste por minimos cuadrados'
-
-        # mirar el condicionamiento de nuestraas matrices
-        coefi, _, _, _ = lstsq(matriz_sist, image_flat,
-                               lapack_driver='gelsy')  #solo queremos llstsq[0]--> array.len=3 con coef c1,c2,c0
-
-        # z=c1*x+c2*y+c0
-        plano = (coefi[0] * index_x + coefi[1] * index_y + coefi[2]).reshape(image.shape)
-
-        image_correct = image - plano
-
-
-        num_cond = self.numero_condicion(matriz_sist, ver=False)
-
-        residuo = self.evaluar_ajuste(image, coefi, matriz_sist)
-
-
-        val_max=np.max(image)
-        val_min=np.min(image)
-        plt.figure(figsize=(10, 5))
-        plt.subplot(1, 3, 1)
-        plt.imshow(image, cmap='gray')
-        plt.title(f'Imagen Original \n- Max: {val_max}\n Min: {val_min}')
-        plt.colorbar()
-
-        val_max = np.max(plano)
-        val_min = np.min(plano)
-        plt.subplot(1, 3, 2)
-        plt.imshow(plano, cmap='gray')
-        plt.title(f'Plano -\n Max: {val_max}\nPlano - Min: {val_min}')
-        plt.colorbar()
-
-        val_max= np.max(image_correct)
-        val_min = np.min(image_correct)
-        plt.subplot(1, 3, 3)
-        plt.imshow(image_correct, cmap='gray')
-        plt.title(f'Imagen Ajustada -\n Max: {val_max}\n Min: {val_min}')
-        # plt.text('')
-        plt.colorbar()
-        plt.show()
-
-
-        return image_correct
-
-    def numero_condicion(self, matriz_sist, ver=True):
-        numero_condicion = np.linalg.cond(matriz_sist)
-        print(f"El número de condición de la matriz es: {numero_condicion}")
-        if ver == True:
-            #Condicionamiento
-            plt.figure()
-            plt.title("Numero de condicion")
-            plt.bar(['Matriz A'], [numero_condicion], color='blue')
-            plt.ylabel('Numero')
-            plt.yscale('log')
-            plt.show()
-
-        return numero_condicion
-
-    def evaluar_ajuste(self, image, coefi, matriz_sist):
-        '''
-        Funcion que evalua que tan bien se ha ajustado nuestro plano a las imagenes
-        '''
-        z_pred = matriz_sist @coefi
-
-        # residuales (diferencia entre los valores reales y los predichos)
-        residuos = image.ravel() - z_pred
-
-        # Calcula la norma de los residuales
-        norma_residual = np.linalg.norm(residuos)
-        print(f"La norma del residuo es: {norma_residual}")
-
-        if norma_residual < 1e-1: #mas o menos, si es pequeño bien, si es grande malo
-            print("El ajuste es bueno.")
-        else:
-            print("El ajuste es malo.")
-
-        return norma_residual
-
 
 class Reconstruccion:
     def __init__(self,datos):
@@ -493,30 +383,13 @@ class Reconstruccion:
 
         'Gradientes --> siempre activa'
         self.calculo_gradientes(1,1,eps=1e-5, ver=False) #c=85.36, d=100
+        # self.integrar_gradientes()
+        self.resolver_ecuacion_sylvester()
 
         "Tipos de integración de gradientes"
-
-        # self.integracion(c=85.36, d=100, z0=0, ver=True)
-        # self.integrar_bidireccional(c=85.36, d=100, z0=0, ver=True)
-        # self.integrar_poisson_con_gradientes(1,1,0,ver=True)
-
-        self.integracion(z0=0)
-        # self.integrar_bidireccional( z0=0)
-        # self.integrar_bidireccional_mal(0)
-        # self.integrar_cuatro_direcciones(0)
-        # self.integrar_poisson()
-        # self.integrar_poisson_bicgstab()
-        # self.integrar_poisson_spsolve()
-        # self.integrar_poisson_condiciones()
-        # self.integrar_poisson_neumann()
-
-        # self.integrar_acumulativa()
-
-
-
-        "Tipos de corrección (desviación planar)"
         # self.corregir_plano()
         # self.corregir_polinomio()
+
 
         "Reconstrucción y visualizador 3D"
         self.plot_superficie(ver_textura=True)
@@ -539,7 +412,7 @@ class Reconstruccion:
         factor = c/d
         # cálculo de los gradientes con restriccion de 0 (aunque ya nunca sucede /0, en mis primeras pruebas si)
         self.s_dx = factor * (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
-        self.s_dy = factor * (i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
+        self.s_dy = factor * (i_c- i_d) / np.clip(i_c + i_d, eps, np.inf)
         # s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
         # s_dy =(i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
 
@@ -565,385 +438,235 @@ class Reconstruccion:
             plt.show()
 
 
-    def integracion(self,z0):
+    def create_difference_operator_forward(self, n):
+        D = np.zeros((n, n))
+        for i in range(n - 1):
+            D[i, i] = -1
+            D[i, i + 1] = 1
+        D[n - 1, n - 1] = -1  # Ajuste para la última fila
+        return D
+    def create_difference_operator_central(self, n):
+        D = np.zeros((n, n))
+        for i in range(1, n - 1):
+            D[i, i - 1] = -0.5
+            D[i, i + 1] = 0.5
+        D[0, 1] = 0.5  # Ajuste para la primera fila
+        D[n - 1, n - 2] = -0.5  # Ajuste para la última fila
+        return D
 
-        # integramos los gradientes segun el metodo acumulativo de los trapecios
-        z_x = cumulative_trapezoid(self.s_dx, dx=self.dpixel, axis=1, initial=z0)
-        z_y = cumulative_trapezoid(self.s_dy, dx=self.dpixel, axis=0, initial=z0)
+    def create_five_point_difference_operator(self,n):
+        D = np.zeros((n, n))
+        for i in range(2, n - 2):
+            D[i, i - 2] = 1
+            D[i, i - 1] = -8
+            D[i, i] = 0
+            D[i, i + 1] = 8
+            D[i, i + 2] = -1
+        D /= 12
+        return D
 
-        # z_x = trapezoid(s_dx*c/d,dx=self.dpixel,axis=0)
-        # z_y = trapezoid(s_dy,dx=self.dpixel,axis=1)
+    def create_central_difference_operator_order_5(self,n):
+        D = np.zeros((n, n))
+        for i in range(2, n - 2):
+            D[i, i - 2] = 1 / 12
+            D[i, i - 1] = -8 / 12
+            D[i, i + 1] = 8 / 12
+            D[i, i + 2] = -1 / 12
 
-        self.z = z_x + z_y  # ahora self.z ya no es None
+        # Ajustes para las primeras dos filas y las últimas dos filas
+        D[0, 0] = -25 / 12
+        D[0, 1] = 4
+        D[0, 2] = -3
+        D[0, 3] = 4 / 3
+        D[0, 4] = -1 / 4
 
-        # metricas que no nos dicen mucho a no ser que sepamos que estamos trabajando con una superficie totalmente plana
-        media = self.z.mean()
-        desviacion = self.z.std()
-        print('\n Valores integracion (cumtrapz): \n --------------\n')
-        print(f'Valor medio: {media}')
-        print(f'Desviacion: {desviacion}')
+        D[1, 0] = -1 / 4
+        D[1, 1] = -25 / 12
+        D[1, 2] = 4
+        D[1, 3] = -3
+        D[1, 4] = 4 / 3
+        D[1, 5] = -1 / 4
 
+        D[-2, -6] = 1 / 4
+        D[-2, -5] = -4 / 3
+        D[-2, -4] = 3
+        D[-2, -3] = -4
+        D[-2, -2] = 25 / 12
+        D[-2, -1] = -1 / 4
 
-    def integrar_bidireccional(self,z0):
+        D[-1, -5] = 1 / 4
+        D[-1, -4] = -4 / 3
+        D[-1, -3] = 3
+        D[-1, -2] = -4
+        D[-1, -1] = 25 / 12
+
+        return D
+    # def create_dense_difference_operator(self,n, points):
+    #     """
+    #     Create a dense difference operator matrix for differentiation.
+    #
+    #     Parameters:
+    #     n (int): Size of the matrix (number of points in the grid).
+    #     points (int): Number of points to consider around each central point.
+    #
+    #     Returns:
+    #     np.ndarray: Dense difference operator matrix.
+    #     """
+    #     D = np.zeros((n, n))
+    #     k = points // 2
+    #
+    #     for i in range(k, n - k):
+    #         A = np.zeros((points, points))
+    #         b = np.zeros(points)
+    #
+    #         for j in range(-k, k + 1):
+    #             for m in range(points):
+    #                 A[j + k, m] = (j) ** m  # Taylor expansion terms
+    #             if j == 0:
+    #                 b[j + k] = 1
+    #
+    #         # Solve the system using np.linalg.solve
+    #         coeffs = np.linalg.solve(A, b)
+    #
+    #         # Populate the differentiation matrix with the coefficients
+    #         for j, coeff in enumerate(coeffs):
+    #             D[i, i + (j - k)] = coeff
+    #
+    #     return D
+    def create_regularized_difference_operator(self,n, points, lambda_reg=0):
+        D = np.zeros((n, n))
+        k = points // 2
+
+        for i in range(k, n - k):
+            A = np.zeros((points, points))
+            b = np.zeros(points)
+
+            for j in range(-k, k + 1):
+                for m in range(points):
+                    A[j + k, m] = (j) ** m  # Taylor expansion terms
+                if j == 0:
+                    b[j + k] = 1
+
+            try:
+                coeffs = np.linalg.solve(A, b)
+            except np.linalg.LinAlgError:
+                continue
+
+            for j, coeff in enumerate(coeffs):
+                D[i, i + (j - k)] = coeff
+
+        for i in range(k):
+            D[i, :points] = D[k, :points]
+            D[-(i + 1), -points:] = D[-(k + 1), -points:]
+        for i in range(n - 1):
+            D[i, i] = -1
+            D[i, i + 1] = 1
+        D[n - 1, n - 1] = -1  # Ajuste para la última fila
+        return D
+
+        # Regularización de Tikhonov
+        I = np.eye(n)
+        D += lambda_reg * I
+
+        return D
+
+    def ope_dif2(self,n, h=1):
+        D = np.zeros((n, n))
+        for i in range(0, n):
+            D[i - 1, i] = 1
+            D[i, i - 1] = -1
+
+        D[-1, 0] = 0
+        D[0, -1] = 0
+
+        D[0, 1] = 4
+        D[-1, -2] = -4
+
+        D[0, 2] = -1
+        D[-1, -3] = 1
+
+        D[0, 0] = -3
+        D[-1, -1] = 3
+
+        D = D / 2
+        return D
+
+    def ope_dif(self,n, h=1):
+
+        D = np.zeros((n, n))
+
+        for i in range(0, n):
+            D[i, i] = -1
+            D[i - 1, i] = 1
+
+        D[-1, - 1] = 1
+        D[-1, 0] = 0
+        D[-1, -2] = -1
+
+        D = D / h
+        return D
+
+    def resolver_ecuacion_sylvester(self):
+        m, n = self.s_dx.shape
+
+        # Usar la matriz de diferenciación deseada
+        # Dx = self.create_difference_operator_central(n)  # O self.Dx_forward
+        # Dy = self.create_difference_operator_central(m)
+
+        # Dx = self.create_difference_operator_forward(n)  # O self.Dx_forward
+        # Dy = self.create_difference_operator_forward(m)
+
+        # Dx = self.create_five_point_difference_operator(n)  # O self.Dx_forward
+        # Dy = self.create_five_point_difference_operator(m)
+
+        # Dx=self.create_central_difference_operator_order_5(n)
+        # Dy=self.create_central_difference_operator_order_5(m)
+
+        # Dx = self.create_regularized_difference_operator(n,5)
+        # Dy = self.create_regularized_difference_operator(m,5)
+
+        # Dx = self.ope_dif(n)
+        # Dy = self.ope_dif(m)
+
+        Dx = self.ope_dif2(n)
+        Dy = self.ope_dif2(m)
+
+        cond_Dx = np.linalg.cond(Dx)
+        cond_Dy = np.linalg.cond(Dy)
+        print(f"Condicionamiento de Dx: {cond_Dx}")
+        print(f"Condicionamiento de Dy: {cond_Dy}")
+
+        A = np.dot(Dy.T, Dy)
+        B = np.dot(Dx, Dx.T)
+        C = np.dot(Dy.T, self.s_dy) + np.dot(self.s_dx, Dx.T)
+
+        Z = solve_sylvester(A, B, C)
+        self.z=Z
+        self.corregir_polinomio()
+        # self.corregir_plano()
+        # Z=self.z
+        self.funcion_coste(self.s_dx, self.s_dy,Dx,Dy,self.z)
+        # return Z
+
+    def funcion_coste(self,s_dx,s_dy,Dx,Dy,Z):
         '''
-        Funcion que integra bidireccionarlmente los gradientes,
-        a partir de ensayo y error, por la variabilidad de los detectores:
-        'bien pa 04'
-        # s_dx = (i_a - i_b) / (i_a + i_b)
-        # s_dy = (i_d - i_c) / (i_c + i_d)
-
-        # '04 al reves'
-        # s_dx = (i_b - i_a) / (i_a + i_b)
-        # s_dy = (i_c - i_d) / (i_c + i_d)
-
-        # 'o6 bien'
-        # s_dx = (i_a - i_b) / (i_a + i_b)
-        # s_dy = (i_c - i_d) / (i_c + i_d)
-
-        # '06 reves'
-        # s_dx = (i_b - i_a) / (i_a + i_b)
-        # s_dy = (i_d - i_c) / (i_c + i_d)
-        :return: self.z --> alturas de la reconstruccion
+        segun Harker, siempre que se conozca la matriz gradiente (S_dx,S_dy), la superficie
+        cuyo grandiente es mas cercano en el sentido de min cuadrados globales,
+        es la que minimiza la función de costo. formulacion FROBENIUS (F)
+        :return: equivalente al error cuadrático medio
         '''
-
-        # Integración de izquierda a derecha en x
-        z_lr = np.cumsum(self.s_dx * self.dpixel , axis=1)
-        z_lr=np.flip(z_lr,axis=0)
-        # Integración de derecha a izquierda en x (invierte la matriz, integra, y luego invierte el resultado)
-        z_rl = np.cumsum(np.flip(self.s_dx, axis=1) * self.dpixel , axis=1)
-        z_rl = np.flip(z_rl, axis=0)
-
-        # Integración de arriba a abajo en y
-        z_tb = np.cumsum(self.s_dy * self.dpixel, axis=0)
-        z_tb = np.flip(z_tb, axis=1)
-        # Integración de abajo hacia arriba en y (invierte la matriz, integra, y luego invierte el resultado)
-        z_bt = np.cumsum(np.flip(self.s_dy, axis=0) * self.dpixel, axis=0)
-        z_bt = np.flip(z_bt, axis=1)
-
-        # combinamos en self.z
-        self.z = (-z_lr + z_rl - z_tb + z_bt) / 4
-
-        media= self.z.mean()
-        desviacion=self.z.std()
-
-        print('\n Valores integracion (bidireccional;cumsum): \n --------------\n')
-        print(f'la media es {media}')
-        print(f'la desviacion es {desviacion}')
-
-        # return self.z
-
-
-    def integrar_bidireccional_mal(self, z0, eps=1e-5):
-
-        # Integración de izquierda a derecha en x
-        z_lr = np.cumsum(self.s_dx * self.dpixel, axis=1)
-        # Integración de derecha a izquierda en x (invierte la matriz, integra, y luego invierte el resultado)
-        z_rl = np.cumsum(np.flip(self.s_dx, axis=1) * self.dpixel, axis=1)
-        z_rl = np.flip(z_rl, axis=1)
-
-        # Integración de arriba a abajo en y
-        z_tb = np.cumsum(self.s_dy * self.dpixel, axis=0)
-        # Integración de abajo hacia arriba en y (invierte la matriz, integra, y luego invierte el resultado)
-        z_bt = np.cumsum(np.flip(self.s_dy, axis=0) * self.dpixel, axis=0)
-        z_bt = np.flip(z_bt, axis=0)
-
-        # Combinación de las integraciones
-        z_combined = (z_lr + z_rl + z_tb + z_bt) / 4
-        self.z = z_combined
-        media = z_combined.mean()
-        desviacion = z_combined.std()
-        print(f'la media es {media}')
-        print(f'la desviacion es {desviacion}')
-
-        return self.z
-
-    def integrar_acumulativa(self):
-        i_a = self.datos.img_dict['right'].astype(np.float32)
-        i_b = self.datos.img_dict['left'].astype(np.float32)
-        i_c = self.datos.img_dict['top'].astype(np.float32)
-        i_d = self.datos.img_dict['bottom'].astype(np.float32)
-
-        z1 = np.zeros_like(i_a)
-        z2 = np.zeros_like(i_a)
-        z3 = np.zeros_like(i_a)
-        z4 = np.zeros_like(i_a)
-
-        # Integración para z1 (similar a tu z1 en MATLAB)
-        for i in range(i_a.shape[0]):
-            for j in range(1, i_a.shape[1]):
-                z1[i, j] = (i_a[i, j] - i_b[i, j]) / (i_a[i, j] + i_b[i, j]) + z1[i, j - 1]
-
-        # Integración para z2 (vertical, desde arriba hacia abajo)
-        for j in range(i_c.shape[1]):
-            for i in range(1, i_c.shape[0]):
-                z2[i, j] = (i_c[i, j] - i_d[i, j]) / (i_c[i, j] + i_d[i, j]) + z2[i - 1, j]
-
-        # Integración para z3 (horizontal, de derecha a izquierda)
-        for i in range(i_a.shape[0]):
-            for j in range(i_a.shape[1] - 2, -1, -1):
-                z3[i, j] = (i_a[i, j] - i_b[i, j]) / (i_a[i, j] + i_b[i, j]) + z3[i, j + 1]
-
-        # Integración para z4 (vertical, de abajo hacia arriba)
-        for j in range(i_c.shape[1]):
-            for i in range(i_c.shape[0] - 2, -1, -1):
-                z4[i, j] = (i_c[i, j] - i_d[i, j]) / (i_c[i, j] + i_d[i, j]) + z4[i + 1, j]
-
-        # Calcular la superficie total combinada
-        z = -(z1 + z2 + z3 + z4)
-        self.z=z
-
-
-    def integrar_poisson(self):
-        start_time=time.time()
-
-        i_a = self.datos.img_dict['right'].astype(np.float32)
-        ny, nx = i_a.shape
-
-
-        # sistema lineal para la integración de Poisson
-        N = ny * nx
-        A = lil_matrix((N, N))
-        b = np.zeros(N)
-
-        # completamos mat A y b
-        for j in range(ny):
-            for i in range(nx):
-                index = j * nx + i
-                b[index] = -((self.s_dx[j, i] if i < nx - 1 else 0) - (self.s_dx[j, i-1] if i > 0 else 0) +
-                             (self.s_dy[j, i] if j < ny - 1 else 0) - (self.s_dy[j-1, i] if j > 0 else 0))
-
-                if i > 0:
-                    A[index, index - 1] = -1
-                if i < nx - 1:
-                    A[index, index + 1] = -1
-                if j > 0:
-                    A[index, index - nx] = -1
-                if j < ny - 1:
-                    A[index, index + nx] = -1
-                A[index, index] = 4
-
-        # Convertir a CSR para la solución eficiente del sistema
-        A_csr = A.tocsr()
-
-        # Resolver sistema lineal usando el método del Gradiente Conjugado
-        z_vector, _ = cg(A_csr, b)
-        z = z_vector.reshape(ny, nx)
-        self.z=z
-
-        end_time = time.time()
-        print(f"Tiempo de ejecución de la integración de poisson: {end_time - start_time} segundos")
-
-        # return self.z
-
-    def integrar_poisson_condiciones(self, ver=True):
-        start_time = time.time()
-
-        i_a = self.datos.img_dict['right'].astype(np.float32)
-        ny, nx = i_a.shape
-
-        # sistema lineal para la integración de Poisson
-        N = ny * nx
-        A = lil_matrix((N, N))
-        b = np.zeros(N)
-
-        # completamos mat A y b
-        for j in range(ny):
-            for i in range(nx):
-                index = j * nx + i
-                if i == 0 or i == nx - 1 or j == 0 or j == ny - 1:
-                    # Aplicar condiciones de Dirichlet en los bordes
-                    A[index, index] = 1
-                    b[index] = 0
-                else:
-                    # Cálculo de gradientes interiores
-                    b[index] = -((self.s_dx[j, i] if i < nx - 1 else 0) - (self.s_dx[j, i - 1] if i > 0 else 0) +
-                                 (self.s_dy[j, i] if j < ny - 1 else 0) - (self.s_dy[j - 1, i] if j > 0 else 0))
-
-                    if i > 0:
-                        A[index, index - 1] = -1
-                    if i < nx - 1:
-                        A[index, index + 1] = -1
-                    if j > 0:
-                        A[index, index - nx] = -1
-                    if j < ny - 1:
-                        A[index, index + nx] = -1
-                    A[index, index] = 4
-
-        # Convertir a CSR para la solución eficiente del sistema
-        A_csr = A.tocsr()
-
-        # Resolver sistema lineal usando el método del Gradiente Conjugado
-        z_vector, _ = cg(A_csr, b)
-        z = z_vector.reshape(ny, nx)
-        self.z = z
-
-        end_time = time.time()
-        if ver:
-            print(f"Tiempo de ejecución de la integración de poisson: {end_time - start_time} segundos")
-
-        return self.z
-
-    def integrar_poisson_neumann(self, gradiente_borde=0.1):
-        start_time = time.time()
-
-        i_a = self.datos.img_dict['right'].astype(np.float32)
-        ny, nx = i_a.shape
-
-        N = ny * nx
-        A = lil_matrix((N, N))
-        b = np.zeros(N)
-
-        for j in range(ny):
-            for i in range(nx):
-                index = j * nx + i
-                if i == 0 or i == nx - 1 or j == 0 or j == ny - 1:
-                    # Aplicar condiciones de Neumann en los bordes
-                    A[index, index] = 1
-                    A[index, index + (1 if i < nx - 1 else -1)] = -1  # ejemplo simple
-                    b[index] = gradiente_borde
-                else:
-                    # Cálculo de gradientes interiores como antes
-                    b[index] = -(self.s_dx[j, i] - self.s_dx[j, i - 1] + self.s_dy[j, i] - self.s_dy[j - 1, i])
-                    A[index, index] = 4
-                    if i > 0:
-                        A[index, index - 1] = -1
-                    if i < nx - 1:
-                        A[index, index + 1] = -1
-                    if j > 0:
-                        A[index, index - nx] = -1
-                    if j < ny - 1:
-                        A[index, index + nx] = -1
-
-        A_csr = A.tocsr()
-        z_vector, _ = cg(A_csr, b)
-        z = z_vector.reshape(ny, nx)
-        self.z = z
-
-        end_time = time.time()
-
-        print(f"Tiempo de ejecución de la integración de poisson: {end_time - start_time} segundos")
-
-        return self.z
-
-
-    def gradiente_energia(self, z):
-        """ Calcula el gradiente de la función de energía con respecto a z. """
-        z = z.reshape(self.ny, self.nx)
-        gz = np.gradient(z)
-        grad_gz = np.gradient(gz[0], axis=0) + np.gradient(gz[1], axis=1)
-        grad = -2 * (self.datos - z) + 2 * self.alpha * grad_gz
-        return grad.ravel()
-
-
-    def integrar_poisson_bicgstab(self, eps=1e-5):
-        """
-        Esta función integra los gradientes de la imagen usando el método de Poisson para la reconstrucción de la superficie.
-        Utiliza el método BiCGSTAB para resolver el sistema lineal, que es más adecuado para matrices que no son simétricas
-        o que están mal condicionadas.
-        """
-        start_time = time.time()
-
-        # Asignación de gradientes precalculados
-        s_dx = self.s_dx
-        s_dy = self.s_dy
-
-        ny, nx = s_dx.shape
-        N = ny * nx
-
-        # Crear matrices directamente en formato CSR
-        data = []
-        row_ind = []
-        col_ind = []
-        b = np.zeros(N)
-
-        for j in range(ny):
-            for i in range(nx):
-                index = j * nx + i
-                if i > 0:
-                    row_ind.append(index)
-                    col_ind.append(index - 1)
-                    data.append(-1)
-
-                if i < nx - 1:
-                    row_ind.append(index)
-                    col_ind.append(index + 1)
-                    data.append(-1)
-
-                if j > 0:
-                    row_ind.append(index)
-                    col_ind.append(index - nx)
-                    data.append(-1)
-
-                if j < ny - 1:
-                    row_ind.append(index)
-                    col_ind.append(index + nx)
-                    data.append(-1)
-
-                # El elemento diagonal
-                row_ind.append(index)
-                col_ind.append(index)
-                data.append(4)
-
-                # Llenar el vector b con el laplaciano discretizado de los gradientes ajustados por c/d
-                b[index] = -((s_dx[j, i] if i < nx - 1 else 0) - (s_dx[j, i - 1] if i > 0 else 0) +
-                             (s_dy[j, i] if j < ny - 1 else 0) - (s_dy[j - 1, i] if j > 0 else 0))
-
-        A_csr = csr_matrix((data, (row_ind, col_ind)), shape=(N, N))
-
-        # Resolver el sistema lineal usando el método BiCGSTAB
-        z_vector, exit_code = bicgstab(A_csr, b)
-        z = z_vector.reshape(ny, nx)
-
-        end_time = time.time()
-        print(f"Tiempo de ejecución de la integración de Poisson bicgstab: {end_time - start_time} segundos")
-        print(f"Código de salida BiCGSTAB: {exit_code}")
-
-        self.z = z
-        return z
-
-
-    def integrar_poisson_spsolve(self):
-        start_time = time.time()
-
-        # Asumimos que los gradientes ya están almacenados en self.s_dx y self.s_dy
-        s_dx = self.s_dx
-        s_dy = self.s_dy
-
-        ny, nx = s_dx.shape
-
-        # Preparar sistema lineal para la integración de Poisson
-        N = ny * nx
-        A = lil_matrix((N, N))
-        b = np.zeros(N)
-
-        # Rellenar la matriz A y el vector b
-        for j in range(ny):
-            for i in range(nx):
-                index = j * nx + i
-                b[index] = -((s_dx[j, i] if i < nx - 1 else 0) - (s_dx[j, i - 1] if i > 0 else 0) +
-                             (s_dy[j, i] if j < ny - 1 else 0) - (s_dy[j - 1, i] if j > 0 else 0))
-
-                if i > 0:
-                    A[index, index - 1] = -1
-                if i < nx - 1:
-                    A[index, index + 1] = -1
-                if j > 0:
-                    A[index, index - nx] = -1
-                if j < ny - 1:
-                    A[index, index + nx] = -1
-                A[index, index] = 4
-
-        # Convertir a CSR para la solución eficiente del sistema
-        A_csr = A.tocsr()
-
-        # Resolver sistema lineal usando un método más eficiente
-        z_vector = spsolve(A_csr, b)
-        z = z_vector.reshape(ny, nx)
-        end_time = time.time()
-        print(f"Tiempo de ejecución de la integración de Poisson: {end_time - start_time} segundos")
-        self.z = z
-        # return z
-
+        if self.z is None:
+            print("No se ha integrado como para calcular la funcion costo")
+            return None
+        else:
+            # Z=self.z
+            c_1=np.linalg.norm(Z @ Dx.T - s_dx,'fro')**2
+            c_2=np.linalg.norm(Dy @ Z -s_dy,'fro')**2
+            coste = c_1 + c_2
+            print(f'\n El valor de la funcion coste ha sido de: \n'
+                  f' c1 = {c_1} \n'
+                  f' c2 = {c_2} \n'
+                  f' total = {coste} \n')
 
     def corregir_plano(self):
         z = self.z
@@ -1003,11 +726,7 @@ class Reconstruccion:
         mae = np.mean(np.abs(z - z_corregido))
         print("Mean Squared Error (MSE):", mse)
         print("Mean Absolute Error (MAE):", mae)
-
-        # return z_corregido, plano_estimado, residuos, coeficientes
-
-
-    def corregir_polinomio(self, grado=3):
+    def corregir_polinomio(self, grado=4):
         z = self.z
         x_index, y_index = np.indices(z.shape)
 
@@ -1050,18 +769,14 @@ class Reconstruccion:
             fig.colorbar(img, ax=ax)
 
         plt.show()
-
-
         # Métricas
         print('\n Valores correccion desviacion planar (polinomio): \n --------------\n')
         print("Coeficientes del polinomio:", coeficientes)
-        print("Suma de residuos cuadrados:", residuals)
+        print("\nSuma de residuos cuadrados:", residuals)
         print("Mean Squared Error (MSE):", mse)
         print("Mean Absolute Error (MAE):", mae)
-        self.z=z_corregido
+        self.z = z_corregido
         # return z_corregido, z_estimado, coeficientes, mse, mae
-
-
     def plot_superficie(self, ver_textura=True):
         # plt.ion()
 
@@ -1382,9 +1097,9 @@ class Histograma:
             else:
                 break
 
-#
-# img_rutas = {'top': 'imagenes/SENOS1-T.BMP', 'bottom': 'imagenes/SENOS1-B.BMP', 'left': 'imagenes/SENOS1-L.BMP',
-#              'right': 'imagenes/SENOS1-R.BMP', 'textura': 'imagenes/SENOS1-S.BMP'}
+# #
+img_rutas = {'top': 'imagenes/SENOS1-T.BMP', 'bottom': 'imagenes/SENOS1-B.BMP', 'left': 'imagenes/SENOS1-L.BMP',
+             'right': 'imagenes/SENOS1-R.BMP', 'textura': 'imagenes/SENOS1-S.BMP'}
 
 # img_rutas = {'top': 'imagenes/CIRC1_T.BMP','bottom': 'imagenes/CIRC1_B.BMP','left': 'imagenes/CIRC1_L.BMP','right': 'imagenes/CIRC1_R.BMP','textura': 'imagenes/CIRC1.BMP'}
 
@@ -1411,8 +1126,8 @@ class Histograma:
 # img_rutas = {'top': 'imagenes/RUEDA3_T.BMP','bottom': 'imagenes/RUEDA3_B.BMP','left': 'imagenes/RUEDA3_L.BMP','right': 'imagenes/RUEDA3_R.BMP','textura': 'imagenes/RUEDA3.BMP'}
 
 #
-img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'left': 'calibrado/0_4-L.BMP',
-             'right': 'calibrado/0_4-R.BMP', 'textura': 'calibrado/0_4-S.BMP'} #son 960 x 1280 pixeles
+# img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'left': 'calibrado/0_4-L.BMP',
+#              'right': 'calibrado/0_4-R.BMP', 'textura': 'calibrado/0_4-S.BMP'} #son 960 x 1280 pixeles
 
 
 # img_rutas = {'top': 'calibrado/0_6-T.BMP', 'bottom': 'calibrado/0_6-B.BMP', 'left': 'calibrado/0_6-L.BMP',
@@ -1453,46 +1168,3 @@ reconstruir = Reconstruccion(cargar)
 # perfil=contornear.contornear_y(pos_x=10)
 # perfil=contornear.contornear_y(pos_x=1200)
 # perfi=contornear.pilacontornos_x(20)
-
-
-'''
-cargar = Cargarimagenes(img_rutas)
-ecualizar = Ecualizacion(cargar)
-procesar = Procesarimagenes(cargar)
-reconstruir = Reconstruccion(cargar)
-contornear = Contornos(reconstruir)
-perfil=contornear.contornear_y(pos_x=300)
-'''
-'para comparrar los perfiles'
-
-# img_rutas = {'top': 'imagenes/6-C-T.BMP', 'bottom': 'imagenes/6-C-B.BMP', 'left': 'imagenes/6-C-L.BMP',
-#              'right': 'imagenes/6-C-R.BMP', 'textura': 'imagenes/6-C-S.BMP'}
-# # #
-# carga_06=Cargarimagenes(img_rutas)
-# ecualizar_06= Ecualizacion(carga_06)
-# procesar_06= Procesarimagenes(carga_06)
-# reconstruir_06= Reconstruccion(carga_06)
-# contornear_06= Contornos(reconstruir_06)
-# perfil_06,ax_x= contornear_06.contornear_y(300)
-# #
-# img_rutas = {'top': 'imagenes/6M-C-T.BMP', 'bottom': 'imagenes/6M-C-B.BMP', 'left': 'imagenes/6M-C-L.BMP',
-#               'right': 'imagenes/6M-C-R.BMP', 'textura': 'imagenes/6M-C-S.BMP'}
-# #
-# carga_06M=Cargarimagenes(img_rutas)
-# ecualizar_06M= Ecualizacion(carga_06M)
-# procesar_06M= Procesarimagenes(carga_06M)
-# reconstruir_06M= Reconstruccion(carga_06M)
-# contornear_06M= Contornos(reconstruir_06M)
-# perfil_06M,_= contornear_06M.contornear_y(300)
-#
-#
-# plt.figure(figsize=(10, 4))
-# plt.plot(ax_x, perfil_06, label='Pieza sin pulido')
-# plt.plot(ax_x, perfil_06M, 'r', label='Pieza con Pulido')
-# plt.legend()
-# plt.title('Comparación de perfiles')
-# plt.xlabel(r'Distancia $(\mu m)$')
-# plt.ylabel(r'Altura $(\mu m)$')
-# plt.tick_params(axis='both', which='major', labelsize=8)
-# plt.grid(False)
-# plt.show()
