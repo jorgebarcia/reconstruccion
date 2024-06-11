@@ -190,4 +190,90 @@ print(Lxg.T@Lxg)
 print(trans@Lxg)
 
 
+def ope_dif2(n, h):
+    D = np.zeros((n, n))
+    for i in range(0, n):
+        D[i - 1, i] = 1
+        D[i,i-1]= -1
+
+    D[-1, 0] = 0
+    D[0,-1]=0
+
+    D[0,1]=4
+    D[-1,-2]=-4
+
+    D[0,2]=-1
+    D[-1,-3]=1
+
+    D[0,0]=-3
+    D[-1,-1]=3
+
+
+    D = D/2
+    return D
+def ope_diff_3(n, h=1):
+    D = np.zeros((n, n))
+
+    for i in range(0, n):
+        D[i - 1, i] = 1
+        D[i,i-1]= -1
+
+    D[-1,0]=0
+    D[0,-1]=0
+    D[0,0]=-3
+    D[-1,-1]=3
+    D[0,1]=4
+    D[-1,-2]=-4
+    D[0,2]=-1
+    D[-1,-3]=1
+
+    D=D/(2*h)
+    return D
+
+
+
+D=ope_diff_3(5,1)
+# D=ope_dif(5,1)
+print('\n \n \n')
+
+print(D)
+
+# print(D * 1)
+
+def diffmat2(n, xspan):
+    a, b = xspan
+    h = 1
+    x = np.linspace(a, b, n + 1)  # nodes
+
+    # Define most of Dx by its diagonals
+    dp = np.full(n, 0.5 / h)  # superdiagonal
+    dm = np.full(n, -0.5 / h)  # subdiagonal
+    D_x = np.diag(dm, -1) + np.diag(dp, 1)
+
+    # Fix first and last rows
+    D_x[0, :3] = np.array([-1.5, 2, -0.5]) / h
+    D_x[-1, -3:] = np.array([0.5, -2, 1.5]) / h
+
+    # Define most of D_xx by its diagonals
+    d0 = np.full(n + 1, -2 / h**2)  # main diagonal
+    dp = np.full(n, 1 / h**2)  # super- and subdiagonal
+    D_xx = np.diag(dp, -1) + np.diag(d0, 0) + np.diag(dp, 1)
+
+    # Fix first and last rows
+    D_xx[0, :4] = np.array([2, -5, 4, -1]) / h**2
+    D_xx[-1, -4:] = np.array([-1, 4, -5, 2]) / h**2
+
+    return D_x, D_xx
+
+Dx, Dxx = diffmat2(5,(0,5))
+
+print('\n \n')
+
+print(Dx)
+
+print('')
+print(Dxx)
+
+
+
 

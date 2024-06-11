@@ -21,7 +21,7 @@ from scipy.sparse.linalg import bicgstab, spsolve
 from scipy.sparse.linalg import cg
 from scipy.sparse import diags, kron, eye
 from scipy.sparse.linalg import spsolve
-matplotlib.use('TkAgg')
+# matplotlib.use('TkAgg')
 from scipy.linalg import solve_sylvester
 # import scienceplots
 # plt.style.use(['science', 'grid'])
@@ -105,79 +105,6 @@ class Procesarimagenes:
         self.filtro(ver=False)
         self.aplicar_fourier(ver=False)
         # self.filtro(ver=False)
-        # self.aplicar_filtro_pasa_bajas()
-        # self.aplicar_correccion_planar()
-
-    def aplicar_filtro_pasa_bajas(self, sigma=50, ver=False):
-        '''
-        Aplica un filtro gaussiano a nuestras imágenes para suavizarlas.
-        '''
-        print("\nAplicando filtro pasa bajas...\n")
-        img_dict_filtrada = {}  # Diccionario auxiliar para las imágenes filtradas
-        for key, image in self.datos.img_dict.items():
-            if key != 'textura':  # No aplicar a la textura
-                img_filtrada = gaussian_filter(image, sigma=sigma)
-                img_dict_filtrada[key + '_filtrada'] = img_filtrada  # Guardar las imágenes filtradas
-
-                if ver:
-                    plt.figure(figsize=(8, 4))
-                    plt.subplot(121)
-                    plt.imshow(image, cmap='gray')
-                    plt.title(f'Original {key}')
-                    plt.axis('off')
-
-                    plt.subplot(122)
-                    plt.imshow(img_filtrada, cmap='gray')
-                    plt.title(f'Filtrada {key}')
-                    plt.axis('off')
-                    plt.show()
-
-        # Actualizar el diccionario original con las imágenes filtradas
-        self.datos.img_dict.update(img_dict_filtrada)
-
-    def aplicar_correccion_planar(self):
-        '''
-        Aplica corrección planar a las imágenes usando matrices de coeficientes correctores.
-        '''
-        print("\nAplicando corrección de desviación planar...\n")
-
-        # Cálculo de las intensidades iniciales en el centro (0,0) de las imágenes filtradas
-        intensidades_centro = {key: image[0, 0] for key, image in self.datos.img_dict.items() if '_filtrada' in key}
-        suma_intensidades_centro = sum(intensidades_centro.values())
-
-        img_dict_corregida = {}  # Diccionario auxiliar para las imágenes corregidas
-        for key, image in self.datos.img_dict.items():
-            if 'filtrada' not in key and key != 'textura':  # No corregir la textura ni las imágenes ya filtradas
-                imagen_filtrada = self.datos.img_dict[key + '_filtrada']
-                intensidad_centro = intensidades_centro[key + '_filtrada']
-
-                # Calcular la matriz de coeficientes de corrección
-                kappa_i = (intensidad_centro / (imagen_filtrada + np.finfo(float).eps)) * (
-                            suma_intensidades_centro / (4 * intensidad_centro))
-
-                # Aplicar la corrección a la imagen original
-                imagen_corregida = image * kappa_i
-
-                # Guardar la imagen corregida en el diccionario auxiliar
-                img_dict_corregida[key + '_corregida'] = imagen_corregida.astype(np.uint8)
-
-                print(f'Corrección aplicada a {key}')
-
-                # Visualización opcional
-                plt.figure(figsize=(8, 4))
-                plt.subplot(121)
-                plt.imshow(image, cmap='gray')
-                plt.title(f'Original {key}')
-                plt.axis('off')
-
-                plt.subplot(122)
-                plt.imshow(imagen_corregida, cmap='gray')
-                plt.title(f'Corregida {key}')
-                plt.axis('off')
-                plt.show()
-
-        # Actualizar el diccionario original con las imágenes corregidas
-        self.datos.img_dict.update(img_dict_corregida)
 
     def nivel_ruido(self):
         '''
@@ -256,7 +183,7 @@ class Procesarimagenes:
             t_fourier=self.transformada_fourier(image)
             # r=self.estimacion_radio(t_fourier)
             # r=self.estimacion_radio()
-            r=200
+            r=50
             image_trans = self.filtro_trans_inversa(t_fourier,r)
 
             #metricas de calidad de la imagen:
@@ -384,27 +311,25 @@ class Reconstruccion:
 
         'Gradientes --> siempre activa'
         self.calculo_gradientes(1,1,eps=1e-5, ver=False) #c=85.36, d=100
-        # self.integrar_gradientes()
-        # self.resolver_ecuacion_sylvester()
-        self.lyapuvnov()
 
-        "Tipos de integración de gradientes"
-        # self.corregir_plano()
-        # self.corregir_polinomio()
+
+        'metodos de integracion'
+        self.least_squares()
 
 
         "Reconstrucción y visualizador 3D"
         self.plot_superficie(ver_textura=True)
 
+
+    '----------------------GRADIENTES----------------------'
     def calculo_gradientes(self,c,d, eps=1e-5, ver=True):
         '''
         Funcion que calcula los gradientes independientemente del uso posterior que les demos
         :param eps: restricccion de /0
         :param ver: ver los gradientes en mapa de calor
-        :return:
+        :return: self.S_dx y self.S_dy --> gradientes que se integrarán
         '''
         # print(self.img_dict)
-
         # extraemos los datos del diccionario con nomenclatura de acuerdo al paper 'palusky2008'
         i_a = self.datos.img_dict['right'].astype(np.float32)
         i_b = self.datos.img_dict['left'].astype(np.float32)
@@ -412,21 +337,13 @@ class Reconstruccion:
         i_d = self.datos.img_dict['bottom'].astype(np.float32)
         # print(i_a.dtype)
         factor = c/d
+
         # cálculo de los gradientes con restriccion de 0 (aunque ya nunca sucede /0, en mis primeras pruebas si)
         self.s_dx = factor * (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
         self.s_dy = factor * (i_c- i_d) / np.clip(i_c + i_d, eps, np.inf)
-        # s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
-        # s_dy =(i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
 
-        # c_A = 1.0
-        # c_B = 1.0
-        # d_A = 1.0
-        # d_B = 1.0
-        #
-        #
-        #
-        # self.s_dx= (c_A + c_B) / (d_A + d_B) * S_AB + (c_B - c_A) / (d_A + d_B) * (1 - (d_A - d_B) / (d_A + d_B) * S_AB)
-
+        #Por si queremos ver mapas de calor de los gradientes y asi verificar que la
+        # orientacion del plot sea la adecuada y las imagenes estan bien referenciadas
         if ver:
             figs=[i_a, i_b,i_a - i_b, i_d, i_c, i_a - i_b]
             titulos=['i_a', 'i_b','i_b - i_a', 'i_d','i_c', 'i_d - i_c']
@@ -440,104 +357,91 @@ class Reconstruccion:
             plt.show()
 
 
-    def paper(self,n):
-        D = np.zeros((n, n))
-        # Aplicar los coeficientes estándar para los puntos interiores
-        for i in range(2, n - 2):
-            D[i, i - 2] = -1 / 12
-            D[i, i - 1] = 4 / 3
-            D[i, i + 1] = -4 / 3
-            D[i, i + 2] = 1 / 12
-
-        # Ajustar los bordes según necesidades específicas o aplicar condiciones de borde
-        D[0, :3] = [-3 / 2, 2, -1 / 2]  # Ejemplo de aproximación hacia adelante
-        D[1, :4] = [-1 / 12, -2 / 3, 4 / 3, -1 / 4]  # Segundo punto
-        D[n - 1, -3:] = [1 / 2, -2, 3 / 2]  # Ejemplo de aproximación hacia atrás
-        D[n - 2, -4:] = [1 / 4, -4 / 3, 2 / 3, 1 / 12]  # Penúltimo punto
-
-        return D
-    def resolver_ecuacion_sylvester(self):
-        m, n = self.s_dx.shape
-       # Dx=self.create_central_difference_operator(n)
-        # Dy=self.create_central_difference_operator(m)
-
-        # Dx = self.create_order5(n)
-        # Dy = self.create_order5(m)
-
-        # Dx = self.create_five_point_difference_operator(n)
-        # Dy = self.create_five_point_difference_operator(m)
-
-        # Dx = self.create_difference_operator_central(n,3)
-        # Dy = self.create_difference_operator_central(m,3)
-
-        coeffs_3 = [1, 0, -2]
-        coeffs_5 = [1, -1.48e-16, -2.5, 2.22e-16, 6]
-
-        # Dx = self.build_diff_matrix(n, coeffs_3)
-        # Dy = self.build_diff_matrix(m, coeffs_3)
-        # Dx = self.build_diff_matrix(n, coeffs_5)
-        # Dy = self.build_diff_matrix(m, coeffs_5)
-
-        Dx=self.paper(n)
-        Dy=self.paper(m)
-
-        print('Dx')
-        print(Dx)
-        self.verify_orthogonality_and_conditioning(Dx)
-
-        print('Dy')
-        print(Dy)
-        self.verify_orthogonality_and_conditioning(Dy)
-
-
-
-        cond_Dx = np.linalg.cond(Dx)
-        cond_Dy = np.linalg.cond(Dy)
-        print(f"Condicionamiento de Dx: {cond_Dx}")
-        print(f"Condicionamiento de Dy: {cond_Dy}")
-
-        A = np.dot(Dy.T, Dy)
-        B = np.dot(Dx, Dx.T)
-        C = np.dot(Dy.T, self.s_dy) + np.dot(self.s_dx, Dx.T)
-
-        Z = solve_sylvester(A, B, C)
-        self.z=Z
-        # self.corregir_polinomio()
-        # self.corregir_plano()
-
-        self.funcion_coste(self.s_dx, self.s_dy,Dx,Dy,self.z)
-
-
-    def orto(self,A, tol=1e-8):
-        n, m = A.shape
-        if n != m:
-            return False  # La matriz debe ser cuadrada para ser ortogonal
+    '----------------------FUNCIONES DE APOYO--------------'
+    def orto(self,A, name="A", tol=1e-8):
+        '''
+        Funcion que verifica la ortogonalidad de una matriz
+        :param A: matriz
+        :param name:  nombre matriz
+        :param tol: para ajustar valores bajos al 0
+        :return: True --> ortogonal, False --> no ortogonal
+        '''
+        n = A.shape[0]
         I = np.eye(n)
         if np.allclose(A.T @ A, I, atol=tol):
-            return True
+            print(f"Orto {name}: True ; {name} es ortogonal.")
         else:
-            return False
-    def cond(self,A):
+            print(f"Orto {name}: False ; {name} no es ortogonal.")
+
+
+    def cond(self,A, name="A"):
+        '''
+        Funcion que calcula el condicionamiento de una matriz
+        :param A: matriz
+        :param name: nombre matriz
+        :return: Condicionamiento mediante un print
+        '''
         U, S, Vt = np.linalg.svd(A)
         if S.min() == 0:
-            return (np.inf, S)  # Retorna una tupla con infinito y los valores singulares
+            print(f"Numero condicion {name}: infitito")
         else:
-            condition = S.max() / S.min()
-            return (condition, S)  # Consistentemente retorna una tupla
-    def plot_cond(self,A):
-        # Calcular los valores singulares sin calcular los vectores U y V
-        singular_values = np.linalg.svd(A, compute_uv=False)
+            condi = S.max() / S.min()
+            print(f"Numero condicion {name}: {condi}.")
 
-        # Graficar los valores singulares en escala logarítmica
-        plt.figure(figsize=(12, 7))
-        plt.plot(singular_values, marker='o', linestyle='-')
-        plt.yscale('log')  # Establece la escala del eje Y a logarítmica
-        plt.title('Valores Singulares de la Matriz en Escala Logarítmica')
-        plt.xlabel('Índice')
-        plt.ylabel('Valor Singular (escala logarítmica)')
+    def todo_mat(self,A,name="A",ver=True):
+        '''
+        Funcion de apoyo cuando quiero verificar ortogonalidad, calcular y ver el condicionamiento
+        muy util durante la creacion de nuevos metodos de integración.
+        :param A: matriz
+        :param name: nombre de la matriz
+        :param ver: True --> plot del condicionamiento; False --> no hay plot
+        :return: Valores Condicionamiento y verifica la ortogonalidad
+        '''
+        self.cond(A,name)
+        self.orto(A,name)
+        if ver:
+            self.plot_cond(A, name)
+
+
+    def plot_cond(self,A, name="A"):
+        '''
+        Funcion que representa el condicionamiento de matrices en funcion de sus
+        valores sigulares
+        :param A:  matriz
+        :param name: nombre matriz
+        :return: plot
+        '''
+
+        singu = np.linalg.svd(A, compute_uv=False)
+        plt.figure(figsize=(5, 4))
+        plt.plot(singu, marker='o', linestyle='-')
+        plt.yscale('log')
+        plt.title({name})
+        plt.xlabel('Valor')
+        plt.ylabel('Valores singulares (logscale)')
         plt.grid(True)
         plt.show()
-    def ope_dif(self,n, h=1):
+
+    def calc_P(self,n):
+        '''
+        Función de apoyo para el metodo householder
+        :param n:
+        :return: P matriz ortogonal de apoyo
+        '''
+        v = np.ones((n, 1))
+        v[0] = 1 + np.sqrt(n)
+        I = np.eye(n)
+
+        vvt = v @ v.T
+        # print('')
+        # print(vvt)
+        vtv = v.T @ v
+        # print(vtv)
+        P = I - 2 * (vvt / vtv)
+        return P
+
+    '-------------OPERADORES DIFERENCIACION------------------'
+    def ope_difforward(self,n, h=1):
 
         D = np.zeros((n, n))
 
@@ -551,6 +455,8 @@ class Reconstruccion:
 
         D = D / h
         return D
+
+
     def ope_dif2(self,n, h=1):
         D = np.zeros((n, n))
         for i in range(0, n):
@@ -572,154 +478,452 @@ class Reconstruccion:
         D = D / 2
         return D
 
-    def calc_P(self,n):
-        v = np.ones((n, 1))
-        v[0] = 1 + np.sqrt(n)
-        I = np.eye(n)
 
-        vvt = v @ v.T
-        # print('')
-        # print(vvt)
-        vtv = v.T @ v
-        # print(vtv)
-        P = I - 2 * (vvt / vtv)
-        return P
+    def ope_dif3(self,n, h=1):
+        D = np.zeros((n, n))
 
-    def lyapuvnov(self):
-        m, n = self.s_dx.shape
+        for i in range(0, n):
+            D[i - 1, i] = 1
+            D[i, i - 1] = -1
 
-        Lx=self.ope_dif2(n)
-        Ly = self.ope_dif2(m)
+        D[-1, 0] = 0
+        D[0, -1] = 0
+        D[0, 0] = -3
+        D[-1, -1] = 3
+        D[0, 1] = 4
+        D[-1, -2] = -4
+        D[0, 2] = -1
+        D[-1, -3] = 1
 
-        # Lx = self.ope_dif(n)
-        # Ly = self.ope_dif(m)
+        D = D / (2 * h)
+        return D
 
-        c,_=self.cond(Lx)
-        print("Cond Lx:", c)
-        # self.plot_cond(Lx)
 
-        c, _ = self.cond(Ly)
-        print("Cond Ly:", c)
-        # self.plot_cond(Ly)
+    def diffmat2(self,n, xspan):
+        '''
+        Funcion utilizada para la regularización de tikhonov para la creacion de
+        un operador diferencial de 1er orden y un ode segundo orden, función extraidda de la bibliografía
+        y convertida a lenguaje de python (estaba en matlab)
+        :param n: tamaño-1 de la matriz
+        :param xspan: rango de adaptacion de los datos
+        :return: Dx y Dxx operadores diferenciales
+        '''
+        a, b = xspan
+        h = 1
+        x = np.linspace(a, b, n + 1)  # nodes
 
-        Px=self.calc_P(n)
+        # Define most of Dx by its diagonals
+        dp = np.full(n, 0.5 / h)  # superdiagonal
+        dm = np.full(n, -0.5 / h)  # subdiagonal
+        D_x = np.diag(dm, -1) + np.diag(dp, 1)
+
+        # Fix first and last rows
+        D_x[0, :3] = np.array([-1.5, 2, -0.5]) / h
+        D_x[-1, -3:] = np.array([0.5, -2, 1.5]) / h
+
+        # Define most of D_xx by its diagonals
+        d0 = np.full(n + 1, -2 / h ** 2)  # main diagonal
+        dp = np.full(n, 1 / h ** 2)  # super- and subdiagonal
+        D_xx = np.diag(dp, -1) + np.diag(d0, 0) + np.diag(dp, 1)
+
+        # Fix first and last rows
+        D_xx[0, :4] = np.array([2, -5, 4, -1]) / h ** 2
+        D_xx[-1, -4:] = np.array([-1, 4, -5, 2]) / h ** 2
+
+        return D_x, D_xx
+
+    def diffcheb(self,n, xspan):
+        """
+        Compute Chebyshev differentiation matrices on `n`+1 points in the
+        interval `xspan`. Returns a vector of nodes and the matrices for the
+        first and second derivatives.
+        """
+        # Nodes in [-1,1]
+        x = -np.cos(np.arange(n + 1) * np.pi / n)
+
+        # Off-diagonal entries
+        c = np.hstack(([2], np.ones(n - 1), [2]))  # endpoint factors
+        D_x = np.zeros((n + 1, n + 1))
+        for i in range(n + 1):
+            for j in range(n + 1):
+                if i != j:
+                    D_x[i, j] = (-1) ** (i + j) * c[i] / (c[j] * (x[i] - x[j]))
+
+        # Diagonal entries
+        D_x[np.isinf(D_x)] = 0  # fix divisions by zero on diagonal
+        s = np.sum(D_x, axis=1)
+        np.fill_diagonal(D_x, -s)  # "negative sum trick"
+
+        # Transplant to [a, b]
+        a, b = xspan
+        x = a + (b - a) * (x + 1) / 2
+        D_x = 2 * D_x / (b - a)  # chain rule
+
+        # Second derivative
+        D_xx = np.dot(D_x, D_x)
+
+        return  D_x, D_xx
+
+    '-----------------METODOS DE INTEGRACION-----------------'
+    def householder(self,Lx,Ly):
+        '''
+
+        :param Lx:
+        :param Ly:
+        :return:
+        '''
+        print('\n Integracion mediante el método HOUSEHOLDER \n --------------------------- \n')
+        # m, n = self.s_dx.shape
+
+        n=Lx.shape[0] #ambas son nxn o mxm
+        m=Ly.shape[0]
+        self.todo_mat(Lx, 'Lx',False)
+        self.todo_mat(Ly, 'Ly',False)
+
+        #Matrices ortogonales, sirven de apoyo
+        Px= self.calc_P(n)
         Py = self.calc_P(m)
+        self.orto(Px,'Px')
+        self.orto(Py,'Py')
 
-        print("Px es orto?", self.orto(Px))
-        print("Py es orto?",self.orto(Py))
+        #caluamos L gorro --> primer elemento nulo y condicionamiento menor
+        Lxg = Lx @ Px
+        Lyg = Ly @ Py
+        self.todo_mat(Lxg,'Lxg',False)
+        self.todo_mat(Lyg,'Lyg',False)
 
-        Lxg = Lx@Px
-        Lyg = Ly@Py
-        # print(m)
-
-        c, _ = self.cond(Lxg)
-        print("Cond Lxg:", c)
-        # self.plot_cond(Lxg)
-
-        c, _ = self.cond(Lyg)
-        print("Cond Lyg:", c)
-        # self.plot_cond(Lyg)
+        #imponemos que sean 0 los lugares que son aproximadamente (mejora muy levemente el codnicionamiento)
         tol = 1e-5
         Lxg[np.abs(Lxg) < tol] = 0
         Lyg[np.abs(Lyg) < tol] = 0
 
-        # print('lxg')
-        # print(Lxg)
-        # print('lyg')
-        # print(Lyg)
-
-        # A=Py.T@Ly.T@Ly@Py
-        # B=Px.T@Lx.T@Lx@Px
-        # G1=Py.T@Ly.T@self.s_dy@Px
-        # G2=Py.T@self.s_dx@Lx@Px
-
+        #Calulamos los terminos del sistema de lyapuvnov
         lytly = Lyg.T @ Lyg
         lxtlx = Lxg.T @ Lxg
 
-        # print("Dimensiones de Py.T:", Lyg.T.shape)
-        # # print("Dimensiones de Ly.T:", Ly.T.shape)
-        # print("Dimensiones de self.s_dy:", self.s_dy.shape)
-        # print("Dimensiones de Px:", Px.shape)
-
+        #termino independiente (Q)
         G1 = Lyg.T @ self.s_dy @ Px
         G2 = Py.T @ self.s_dx @ Lxg
-        G=G1+G2
+        G = -(G1 + G2)
 
+        #Extraemos las submatrices para resolver el sistema lineal (bibliografia)
+        A = lytly[1:, 1:]
+        B = lxtlx[1:, 1:]
+        c10 = G[1:, 0]
+        c01 = G[0, 1:]
+        C = G[1:, 1:]
 
-        print('lytly')
-        print(lytly)
-        print('lxtlx')
-        print(lxtlx)
-        print('G')
-        print(G)
+        self.cond(A,'A')
+        self.cond(B,'B')
 
-        A=lytly[1:,1:]
-        B=lxtlx[1:,1:]
-        c10=G[1:,0]
-        c01=G[0,1:]
-        C=G[1:,1:]
-
-        # c, _ = self.cond(A) #hacerlo pa A,B y c ... MUY BAJO
-        # print("A:", c)
+        # A y B int¡vertibles, el sistema es lineal
 
         w01 = np.linalg.solve(B, -c01.T)
-        print(np.allclose(np.dot(w01.T, B) + c01, 0, atol=1e-10))  # Debería retornar True
+        print('sistema w01:')
+        print(np.allclose(np.dot(w01.T, B) + c01, 0, atol=1e-10))  # Deberia retornar True si esta correcto
 
+        print('sistema w10:')
         w10 = np.linalg.solve(A, -c10)
+        print(np.allclose(np.dot(w10, A) + c10, 0, atol=1e-10))
 
-        from scipy.linalg import solve_lyapunov
-        # Como scipy solo resuelve AX + XB = C, necesitas adaptarla si es posible
-        # Esta es solo una ilustración y puede que necesites ajustarla
-        # W11 = solve_lyapunov(A, -C @ np.linalg.inv(B))  # Asumiendo que B es invertible
-        # error = A @ W11 + W11 @ B + C
-        # print("Error de la solución Lyapunov:", error)  # Esto debería ser cercano a cero
-        print('silve')
-        from scipy.linalg import solve_sylvester
+        #Se usó en linalg.lstsq y .solve y dio mejores resultados .solve a pesar del cond A y B
+        # error_w01 = w01.T @ B + c01.T
+        # error_w10 = A @ w10 + c10
+
+        #resolvemos el termino W11 segun la nueva formulacion Sylvester:
         W11 = solve_sylvester(A, B, -C)
         error = A @ W11 + W11 @ B + C
-        print("Error de la solución Lyapunov:", error)  # Esto debería ser cercano a cero
+        print("Error de la solución Lyapunov:", error)  #muy bajo, es 0
 
-        print('pera')
-        print(w01)
-        print(w10)
-
+        #reconstruimos W... W[0,0]=0 sería como Z0, nos d aigual
         W = np.zeros((len(w10) + 1, len(w01) + 1))
         W[0, 1:] = w01
         W[1:, 0] = w10
         W[1:, 1:] = W11
-        print(W)
-        #
-        # Px_inv = np.linalg.inv(Px)
-        # Py_inv_T = np.linalg.inv(Py).T
 
         Px_inv = np.linalg.inv(Px.T)
         Py_inv_T = np.linalg.inv(Py)
 
-        # print()
-
-        # Calcular Z usando la relación Z = (Py.T)^-1 * W * (Px)^-1
-        Z1 = Py_inv_T @ W @ Px_inv
-        Z2=Py@W@Px.T
-
-        print(Z1-Z2)
-
+        #Resolvemos Z
+        Z = Py @ W @ Px.T
         self.z=Z
+        return Z
 
-        # print(c10)
-        # print(c01)
-        #
+
+    def hou_tikho(self,Lx,Ly,lamb=1e-1):
+        '''
+        Funcion que resuelve la ecuacion de Sylvester para la integracion de los gradientes
+        ayudandose de la reformulacion de housholder y añadiendo la regularizacion de
+        tikchonov. Es identica a housholder excepto en las matrices A y B
+        :param Lx: matriz operador diferenciacion de dimencion nxn
+        :param Ly: matriz operador diferenciacion de dimencion mxm
+        :return: Z superficie reconstruida
+        '''
+        n = Lx.shape[0]  # ambas son nxn o mxm
+        m = Ly.shape[0]
+        # self.cond(Lx, 'Lx')
+        # self.plot_cond(Lx,'Lx')
+        # self.orto(Lx,'Lx')
+        # self.cond(Ly, 'Ly')
+        # self.plot_cond(Ly,'Ly')
+        # self.orto(Ly,'Ly')
+        self.todo_mat(Lx, 'Lx', False)
+        self.todo_mat(Ly, 'Ly', False)
+
+        # Matrices ortogonales, sirven de apoyo
+        Px = self.calc_P(n)
+        Py = self.calc_P(m)
+
+        self.orto(Px, 'Px')
+        self.orto(Py, 'Py')
+
+        # caluamos L gorro --> primer elemento nulo y condicionamiento menor
+        Lxg = Lx @ Px
+        Lyg = Ly @ Py
+
+        self.todo_mat(Lxg, 'Lxg', False)
+        self.todo_mat(Lyg, 'Lyg', False)
+
+        # imponemos que sean 0 los lugares que son aproximadamente
+        tol = 1e-5
+        Lxg[np.abs(Lxg) < tol] = 0
+        Lyg[np.abs(Lyg) < tol] = 0
+
+        # Calulamos los terminos del sistema de lyapuvnov
+        lytly = Lyg.T @ Lyg
+        lxtlx = Lxg.T @ Lxg
+
+        # termino independiente (Q)
+        G1 = Lyg.T @ self.s_dy @ Px
+        G2 = Py.T @ self.s_dx @ Lxg
+        G = -(G1 + G2)
+
+        # Extraemos las submatrices para resolver el sistema lineal(bibliografia)
+        A = lytly[1:, 1:]
+        B = lxtlx[1:, 1:]
+        c10 = G[1:, 0]
+        c01 = G[0, 1:]
+        C = G[1:, 1:]
+
+        self.cond(A, 'A')
+        self.cond(B, 'B')
+
+        # A y B int¡vertibles, el sistema es lineal
+
+        w01 = np.linalg.solve(B, -c01.T)
+        print('sistema w01:')
+        print(np.allclose(np.dot(w01.T, B) + c01, 0, atol=1e-10))  # Deberia retornar True si esta correcto
+
+        print('sistema w10:')
+        w10 = np.linalg.solve(A, -c10)
+        print(np.allclose(np.dot(w10, A) + c10, 0, atol=1e-10))
+
+        # Se usó en linalg.lstsq y .solve y dio mejores resultados .solve a pesar del cond A y B
+        # error_w01 = w01.T @ B + c01.T
+        # error_w10 = A @ w10 + c10
+        'Regularizacion de tikhinov'
+
+        At = A + lamb * np.eye(A.shape[0])
+        Bt = B+ lamb * np.eye(B.shape[0])
+
+        # resolvemos el termino W11 segun la nueva formulacion Sylvester:
+        W11 = solve_sylvester(At, Bt, -C)
+        error = At @ W11 + W11 @ B + C
+        print("Error de la solución Lyapunov:", error)  # muy bajo, es 0
+
+        # reconstruimos W... W[0,0]=0 sería como Z0, nos d aigual
+        W = np.zeros((len(w10) + 1, len(w01) + 1))
+        W[0, 1:] = w01
+        W[1:, 0] = w10
+        W[1:, 1:] = W11
+
+        Px_inv = np.linalg.inv(Px.T)
+        Py_inv_T = np.linalg.inv(Py)
+
+        # Resolvemos Z
+        Z = Py @ W @ Px.T
+        self.z = Z
+        return Z
+
+
+    def solve_sylvester(self,Lx,Ly):
+
+        A = Ly.T @ Ly
+        B = Lx.T @ Lx
+        C = - (Ly.T @ self.s_dy + self.s_dx @ Lx)
+
+        Z = solve_sylvester(A, B, -C)
+        error = A @ Z + Z @ B + C
+        print("Error de la solución Lyapunov:", error)
+
+
+    def reg_dirichlet(self,Lx,Ly):
+        print('Aplicando regularizacion de dirichlet...')
+        m, n = self.s_dx.shape
+        P = np.zeros((m, m))
+        if m > 2:
+            P[1:m - 1, 1:m - 1] = np.eye(m - 2)
+
+        Q = np.zeros((n, n))
+        if n > 2:
+            Q[1:n - 1, 1:n - 1] = np.eye(n - 2)
+
+        A = P.T @ Ly.T @ Ly @ P
+        B = Q.T @ Lx.T @ Lx @ Q
+        C = - P.T @ (Ly.T @ self.s_dy + self.s_dx @ Lx) @ Q
+
+        print(A)
+        print(B)
+        print(C)
+
+        Z = solve_sylvester(A, B, -C)
+        error = A @ Z + Z @ B + C
+        print("Error de la solución Lyapunov:", error)
+        self.z = Z
+        return Z
+
+
+    def reg_tikhonov(self,Lx,Ly,Sx,Sy,lamb=1e-2):
+        '''
+        Esta funcion calcula una nueva superficie Z a partir de la primera estimada mediante
+        la regularizacion de tikhonov
+        :param Lx:
+        :param Ly:
+        :param Z0:
+        :param lamb:
+        :return:
+        '''
+        print('Regularizacion de tikhonov....')
+        # Sy= Ly @ Ly
+        # Sx= Lx @ Lx
+        # print(Lx.shape, Ly.shape, Sx.shape, Sy.shape)
+        # Z0 = self.reg_dirichlet(Lx, Ly)
+        # Z0=np.ones((Ly.shape[1],Lx.shape[0]))
+        Z0 = np.zeros((Ly.shape[1], Lx.shape[0]))
+        # print(Z0.shape)
+        # print(Sy.T @ Sy)
+        # print(Sx.T @ Sx)
+        A= Ly.T @ Ly + lamb**2 * Sy.T @ Sy
+        B = Lx.T @ Lx + lamb**2 * Sx.T @ Sx
+        # A = Ly.T @ Ly + lamb ** 2 * np.eye(Ly.shape[0])
+        # B = Lx.T @ Lx + lamb ** 2 * np.eye(Lx.shape[0])
+
+        C = -((Ly.T @ self.s_dy + self.s_dx @ Lx) + lamb**2 * (Sy.T @ Sy @ Z0 + Z0 @ Sx.T @ Sx))
+        tol=1e-10
+        # A[np.abs(A) < tol] =0
+        # C[np.abs(C) < tol] = 0
+        # B[np.abs(B) < tol] = 0
         # print(A)
         # print(B)
+        # print(C)
+        Z = solve_sylvester(A, B, -C)
 
+        error = A @ Z + Z @ B + C
+        print("Error de la solución Lyapunov mediante tikhonov:\n", error)
+        self.z=Z
+        # self.funcion_coste_tik(self.s_dx,self.s_dy,Lx,Ly,Z0,Z,lamb)
+
+    def reg_tikhonov2(self,Lx,Ly,lamb=1e-2):
+        print('Aplicando tikhonov...')
+        Ux,Sx,Vxt = np.linalg.svd(Lx, full_matrices=False)
+        Uy, Sy, Vyt = np.linalg.svd(Ly, full_matrices=False)
+
+        P=Uy@self.s_dy@Vxt.T
+        Q=Vyt@self.s_dx@Ux
+        Sy=np.diag(Sy)
+        Sx = np.diag(Sx)
+        # print(Sx)
+
+        A=Sy@Sy+(lamb**2)*np.eye(Sy.shape[0])
+        B=Sx@Sx+(lamb**2)*np.eye(Sx.shape[0])
+        print('sy',Sy.shape)
+        print('p', P.shape)
+        print('q', Q.shape)
+        print('sx', Sx.shape)
+        # x=Sy.T@Sy
+        # print(Q.dtype)
+        C=-(Sy@P+Q@Sx)
+
+        Z=solve_sylvester(A, B,-C)
+        error = A @ Z + Z @ B + C
+        print("Error de la solución Lyapunov mediante tikhonov:\n", error)
+        self.z = Z
+
+
+
+
+    '-----------------------INTEGRACION POR MINIMOS CUADRADOS-----------------'
+    def least_squares(self):
+        m, n = self.s_dx.shape
+        '----------------------------SYLVESTER------------------------------'
+        # Lx_s = self.ope_dif3(n)
+        # Ly_s = self.ope_dif3(m)
+
+        # Lx_s = self.ope_dif2(n)
+        # Ly_s = self.ope_dif2(m)
+        # Z_s= self.solve_sylvester(Lx_s,Ly_s)
+        # Z_t=self.reg_tikhonov2(Lx_s,Ly_s,Z_s,1e-1)
+        # self.funcion_coste(self.s_dx,self.s_dy,Lx_s,Ly_s,Z_s)
+        # self.funcion_coste_tik(self.s_dx, self.s_dy, Lx_s, Ly_s, Z_s,Z_t,1e-1)
+
+        "Solucion con el método -----------HOUSEHOLDER------- mejora la ortogonalidad y el condicionanmiento"
+        #de las tres matrices, es la unica que aumenta la funcion coste
+        # Lx1 = self.ope_difforward(n)
+        # Ly1 = self.ope_difforward(m)
+        #
+        # Z_house_1 = self.householder(Lx1, Ly1)
+        # coste_hou_1 = self.funcion_coste(self.s_dx, self.s_dy, Lx1, Ly1, Z_house_1)
+
+        'La que suelo usar no...?'
+        # Lx2=self.ope_dif2(n)
+        # Ly2 = self.ope_dif2(m)
+        # Z_house_2 = self.householder(Lx2, Ly2)
+        # Z_t=self.reg_tikhonov2(Lx2,Ly2,Z_house_2,1e-2)
+        # coste_hou_2 = self.funcion_coste(self.s_dx, self.s_dy, Lx2, Ly2, Z_house_2)
+        # self.funcion_coste_tik(self.s_dx, self.s_dy, Lx2, Ly2, Z_house_2,Z_t,1e-1)
+
+        # Lx3 = self.ope_dif3(n)
+        # Ly3 = self.ope_dif3(m)
+        # Z_house_3=self.householder(Lx3,Ly3)
+        # coste_hou=self.funcion_coste(self.s_dx,self.s_dy,Lx3,Ly3,Z_house_3)
+
+
+
+        '-------------------TIKHONOV----------------------'
+        Lx = self.ope_dif2(n)
+        Ly = self.ope_dif2(m)
+        # Sx=Lx@Lx
+        # Sy=Ly@Ly
+        # Lx = self.ope_dif3(n)
+        # Ly = self.ope_dif3(m)
+
+        # Lx,Sx = self.diffmat2(n-1,(0,n-1))
+        # Ly,Sy = self.diffmat2(m-1,(0,m-1))
+        # Lx, Sx = self.diffcheb(n - 1, (0, n - 1))
+        # Ly, Sy = self.diffcheb(m - 1, (0, m - 1))
+        #
+
+        #
+        # self.reg_tikhonov(Lx,Ly,Sx,Sy,lamb=1e-1)
+        self.reg_tikhonov2(Lx,Ly,lamb=1e-1)
         # self.corregir_polinomio()
         # self.corregir_plano()
-        self.funcion_coste(self.s_dx,self.s_dy,Lx,Ly,Z)
+
+
+        '------------------DIRITCHLET------------------'
+
+        # Lx_s = self.ope_dif2(n)
+        # Ly_s = self.ope_dif2(m)
+
+        # Lx_s, Sx = self.diffcheb(n - 1, (0, n - 1))
+        # Ly_s, Sy = self.diffcheb(m - 1, (0, m - 1))
+        # Z_s = self.reg_dirichlet(Lx_s, Ly_s)
 
 
 
 
 
-
+    '------------------------FUNCIONES COSTE-------------------'
     def funcion_coste(self,s_dx,s_dy,Dx,Dy,Z):
         '''
         segun Harker, siempre que se conozca la matriz gradiente (S_dx,S_dy), la superficie
@@ -731,14 +935,42 @@ class Reconstruccion:
             print("No se ha integrado como para calcular la funcion costo")
             return None
         else:
-            # Z=self.z
             c_1=np.linalg.norm(Z @ Dx.T - s_dx,'fro')**2
             c_2=np.linalg.norm(Dy @ Z -s_dy,'fro')**2
             coste = c_1 + c_2
-            print(f'El valor de la funcion coste ha sido de: {c_1} y {c_2} y {coste}')
+            print(Z.shape)
+            print(f'El valor de la funcion coste ha sido de:\n'
+                  f'Z*Lx^T - Z_x: {c_1} \n'
+                  f'Z*Ly^T - Z_y: {c_2}\n'
+                  f'coste: {coste} \n')
+        return coste
 
+    def funcion_coste_tik(self, s_dx, s_dy, Dx, Dy, Z0,Z, lamb):
+        '''
+
+        '''
+        if self.z is None:
+            print("No se ha integrado como para calcular la funcion costo")
+            return None
+        c_1 = np.linalg.norm(Z @ Dx.T - s_dx, 'fro') ** 2
+        c_2 = np.linalg.norm(Dy @ Z - s_dy, 'fro') ** 2
+        # regularizacion:
+        c_reg = 2*lamb**2 * np.linalg.norm(Z-Z0, 'fro') ** 2
+
+        coste = c_1 + c_2 + c_reg
+
+        print(f'El valor de la funcion coste ha sido de:\n'
+              f'Z * Lx^T - Z_x: {c_1} \n'
+              f'Z * Ly^T - Z_y: {c_2} \n'
+              f'2 * lamb *(Z - Z0):{c_reg} \n'
+              f'coste: {coste} \n')
+        return coste
+
+
+    '------------------------CORRECCIONES----------------------'
     def corregir_plano(self):
-        z = self.z
+        z = np.copy(self.z)
+        # z[:,200:-200]=0
 
         #mallado en funcion de z
         x_index, y_index = np.indices(z.shape)
@@ -757,7 +989,10 @@ class Reconstruccion:
         plano_estimado = plano_estimado.reshape(z.shape)
 
         # restamos el plano estimado de la topografía original para corregir la inclinación --> ojo que dependiendo de los detectores --> gradientes igual hay que sumarlo
+        # plano_estimado = np.min(plano_estimado) - plano_estimado
+
         z_corregido = z - plano_estimado
+
         # z_corregido = z + plano_estimado
         self.z = z_corregido
 
@@ -795,6 +1030,8 @@ class Reconstruccion:
         mae = np.mean(np.abs(z - z_corregido))
         print("Mean Squared Error (MSE):", mse)
         print("Mean Absolute Error (MAE):", mae)
+
+
     def corregir_polinomio(self, grado=4):
         z = self.z
         x_index, y_index = np.indices(z.shape)
@@ -846,9 +1083,12 @@ class Reconstruccion:
         print("Mean Absolute Error (MAE):", mae)
         self.z = z_corregido
         # return z_corregido, z_estimado, coeficientes, mse, mae
+
+
+    '---------------------------PLLOT--------------------------'
     def plot_superficie(self, ver_textura=True):
         # plt.ion()
-
+        matplotlib.use('TkAgg')
         x, y = np.meshgrid(np.arange(self.z.shape[1]), np.arange(self.z.shape[0]))
 
         # primera figura
@@ -869,7 +1109,7 @@ class Reconstruccion:
         # axis_1.set_zlim(bottom=-40, top=200)
         # axis_1.set_zticks(np.arange(-20, 40, 20))
 
-        axis_1.get_proj = lambda: np.dot(Axes3D.get_proj(axis_1), np.diag([1.0, 1.0, 0.4, 1]))
+        # axis_1.get_proj = lambda: np.dot(Axes3D.get_proj(axis_1), np.diag([1.0, 1.0, 0.4, 1]))
         axis_1.tick_params(axis='both', which='major', labelsize=7)
 
         mappable = cm.ScalarMappable(cmap=cm.plasma)
@@ -900,7 +1140,7 @@ class Reconstruccion:
             axis_2.set_zlabel(r'Z $(\mu m)$')
             # axis_2.set_zticks(np.arange(-20, 40, 20))
 
-            axis_2.get_proj = lambda: np.dot(Axes3D.get_proj(axis_2), np.diag([1.0, 1.0, 0.4, 1]))
+            # axis_2.get_proj = lambda: np.dot(Axes3D.get_proj(axis_2), np.diag([1.0, 1.0, 0.4, 1]))
 
             axis_2.tick_params(axis='both', which='major', labelsize=7)
             # axis_2.secondary_xaxis()
@@ -1167,7 +1407,7 @@ class Histograma:
                 break
 
 # #
-# img_rutas = {'top': 'imagenes/SENOS1-T.BMP', 'bottom': 'imagenes/SENOS1-B.BMP', 'left': 'imagenes/SENOS1-L.BMP',
+# img_rutas = {'top': 'imagenes/SENOS1-B.BMP', 'bottom': 'imagenes/SENOS1-T.BMP', 'left': 'imagenes/SENOS1-L.BMP',
 #              'right': 'imagenes/SENOS1-R.BMP', 'textura': 'imagenes/SENOS1-S.BMP'}
 
 # img_rutas = {'top': 'imagenes/CIRC1_T.BMP','bottom': 'imagenes/CIRC1_B.BMP','left': 'imagenes/CIRC1_L.BMP','right': 'imagenes/CIRC1_R.BMP','textura': 'imagenes/CIRC1.BMP'}
@@ -1221,6 +1461,7 @@ cargar = Cargarimagenes(img_rutas)
 # histograma = Histograma(cargar)
 # procesar = Procesarimagenes(cargar)
 # ecualizar = Ecualizacion(cargar)
+# ecualizar = Ecualizacion(cargar)
 # histograma = Histograma(cargar)
 # aplanar = Metodosaplanacion(cargar)
 
@@ -1232,7 +1473,8 @@ reconstruir = Reconstruccion(cargar)
 # contornear = Contornos(reconstruir)
 # perfil=contornear.contornear_y(pos_x=480)
 # perfi=contornear.contornear_x(pos_y=640)
-# # perfi=contornear.contornear_x(pos_y=200)
+# perfi=contornear.contornear_x(pos_y=800)
+# perfi=contornear.contornear_x(pos_y=200)
 # perfil=contornear.contornear_y(pos_x=0)
 # perfil=contornear.contornear_y(pos_x=10)
 # perfil=contornear.contornear_y(pos_x=1200)
