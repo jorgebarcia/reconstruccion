@@ -905,7 +905,7 @@ class Reconstruccion:
 
         #
         # self.reg_tikhonov(Lx,Ly,Sx,Sy,lamb=1e-1)
-        self.reg_tikhonov2(Lx,Ly,lamb=1e-1)
+        # self.reg_tikhonov2(Lx,Ly,lamb=1e-1)
         # self.corregir_polinomio()
         # self.corregir_plano()
 
