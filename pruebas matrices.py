@@ -275,5 +275,22 @@ print('')
 print(Dxx)
 
 
+def segundadif(n):
+    # Crear una matriz de ceros de tamaño n x n
+    L = np.zeros((n, n))
+
+    # Llenar la matriz con los valores adecuados para la segunda diferencia
+    for i in range(n):
+        if i > 0:
+            L[i, i - 1] = 1
+        L[i, i] = -2
+        if i < n - 1:
+            L[i, i + 1] = 1
+    return L
+
+D=second_difference_matrix(7)
+print(D)
+
+
 
 

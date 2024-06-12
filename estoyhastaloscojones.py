@@ -61,6 +61,7 @@ from scipy.sparse import csc_matrix
 #     'grid.linestyle': '--', # Estilo de la línea de la cuadrícula
 # })
 
+start_total=time.time()
 class Cargarimagenes:
     def __init__(self, img_rutas):
         # self.img_rutas = img_rutas
@@ -388,6 +389,7 @@ class Reconstruccion:
             condi = S.max() / S.min()
             print(f"Numero condicion {name}: {condi}.")
 
+
     def todo_mat(self,A,name="A",ver=True):
         '''
         Funcion de apoyo cuando quiero verificar ortogonalidad, calcular y ver el condicionamiento
@@ -532,6 +534,7 @@ class Reconstruccion:
 
         return D_x, D_xx
 
+
     def diffcheb(self,n, xspan):
         """
         Compute Chebyshev differentiation matrices on `n`+1 points in the
@@ -564,6 +567,19 @@ class Reconstruccion:
 
         return  D_x, D_xx
 
+    def segundadif(self,n):
+        # Crear una matriz de ceros de tamaño n x n
+        L = np.zeros((n, n))
+
+        # Llenar la matriz con los valores adecuados para la segunda diferencia
+        for i in range(n):
+            if i > 0:
+                L[i, i - 1] = 1
+            L[i, i] = -2
+            if i < n - 1:
+                L[i, i + 1] = 1
+        return L
+
     '-----------------METODOS DE INTEGRACION-----------------'
     def householder(self,Lx,Ly):
         '''
@@ -572,7 +588,8 @@ class Reconstruccion:
         :param Ly:
         :return:
         '''
-        print('\n Integracion mediante el método HOUSEHOLDER \n --------------------------- \n')
+        print('\n Integracion mediante el método HOUSEHOLDER... \n --------------------------- \n')
+        start_house=time.time()
         # m, n = self.s_dx.shape
 
         n=Lx.shape[0] #ambas son nxn o mxm
@@ -647,6 +664,8 @@ class Reconstruccion:
         #Resolvemos Z
         Z = Py @ W @ Px.T
         self.z=Z
+        end_house=time.time()
+        print(f'\n Se ha aplicado el metodo householder con una duracion de:{start_house-end_house}')
         return Z
 
 
@@ -747,7 +766,14 @@ class Reconstruccion:
 
 
     def solve_sylvester(self,Lx,Ly):
+        '''
 
+        :param Lx:
+        :param Ly:
+        :return:
+        '''
+        print('Aplicando integracion mediante sylvester sin regulaciones....')
+        start_syl=time.time()
         A = Ly.T @ Ly
         B = Lx.T @ Lx
         C = - (Ly.T @ self.s_dy + self.s_dx @ Lx)
@@ -755,6 +781,11 @@ class Reconstruccion:
         Z = solve_sylvester(A, B, -C)
         error = A @ Z + Z @ B + C
         print("Error de la solución Lyapunov:", error)
+        self.z = Z
+
+        end_syl = time.time()
+        print(f'Duracion integracion por sylvester: {end_syl-start_syl}')
+        return Z
 
 
     def reg_dirichlet(self,Lx,Ly):
@@ -783,7 +814,7 @@ class Reconstruccion:
         return Z
 
 
-    def reg_tikhonov(self,Lx,Ly,Sx,Sy,lamb=1e-2):
+    def reg_tikhonov(self,Lx,Ly,Sx,Sy,lamb=1e-1):
         '''
         Esta funcion calcula una nueva superficie Z a partir de la primera estimada mediante
         la regularizacion de tikhonov
@@ -793,40 +824,104 @@ class Reconstruccion:
         :param lamb:
         :return:
         '''
+        '''
+        diri +tiki
+        m, n = self.s_dx.shape
+        P = np.zeros((m, m))
+        if m > 2:
+            P[1:m - 1, 1:m - 1] = np.eye(m - 2)
+
+        Q = np.zeros((n, n))
+        if n > 2:
+            Q[1:n - 1, 1:n - 1] = np.eye(n - 2)
+
+
+        A= P.T@(Ly.T @ Ly + lamb * Sy.T @ Sy)@P
+        B = Q.T@(Lx.T @ Lx + lamb * Sx.T @ Sx)@Q
+        C = -P.T @ ((Ly.T @ self.s_dy + self.s_dx @ Lx) + lamb * (Sy.T @ Sy @ Z0 + Z0 @ Sx.T @ Sx)) @ Q
+        Z = solve_sylvester(A, B, -C)
+
+        error = A @ Z + Z @ B + C
+        print("Error de la solución Lyapunov mediante tikhonov:\n", error)
+        self.z = Z'''
         print('Regularizacion de tikhonov....')
+        print(f'Hemos usado una lambda:{lamb}')
+
         # Sy= Ly @ Ly
         # Sx= Lx @ Lx
         # print(Lx.shape, Ly.shape, Sx.shape, Sy.shape)
-        # Z0 = self.reg_dirichlet(Lx, Ly)
+
         # Z0=np.ones((Ly.shape[1],Lx.shape[0]))
         Z0 = np.zeros((Ly.shape[1], Lx.shape[0]))
-        # print(Z0.shape)
-        # print(Sy.T @ Sy)
-        # print(Sx.T @ Sx)
-        A= Ly.T @ Ly + lamb**2 * Sy.T @ Sy
-        B = Lx.T @ Lx + lamb**2 * Sx.T @ Sx
+
+        print('Ly\n',Ly)
+        print('Lx\n',Lx)
+        print('Ly.T\n', Ly.T)
+        print('Lx.T\n', Lx.T)
+        print('------------')
+        unoy=Ly.T @ Ly
+        unox=Lx.T @ Lx
+        print('Ly.T @ Ly\n', unoy)
+        print('Lx.T @ Lx\n', unox)
+        print('------------')
+        print('Sy\n', Sy)
+        print('Sx\n', Sx)
+        print('------------')
+        dosy=Sy.T @ Sy
+        dosx=Sx.T @ Sx
+        print('Sy.T @ Sy\n', dosy)
+        print('Sx.T @ Sx\n',dosx)
+        print('------------')
+
+        tresy = (Sy.T @ Sy)*lamb
+        tresx = (Sx.T @ Sx)*lamb
+        print('Sy.T @ Sy\n', tresy)
+        print('Sx.T @ Sx\n', tresx)
+
+
+        cuatroy=unoy+tresy
+        cuatrox=unox+tresx
+        print('cuatroy\n',cuatroy)
+        print('cuatrox\n',cuatrox)
+        print('------------')
+        print('ly', Ly.shape)
+        print('s_dy', self.s_dy.shape)
+        print('sdx', self.s_dx.shape)
+        print('Lx', Lx.shape)
         # A = Ly.T @ Ly + lamb ** 2 * np.eye(Ly.shape[0])
         # B = Lx.T @ Lx + lamb ** 2 * np.eye(Lx.shape[0])
-
-        C = -((Ly.T @ self.s_dy + self.s_dx @ Lx) + lamb**2 * (Sy.T @ Sy @ Z0 + Z0 @ Sx.T @ Sx))
-        tol=1e-10
+        # C = -((  Ly@self.s_dy + self.s_dx @ Lx.T) + lamb ** 2 * (Sy.T @ Sy @ Z0 + Z0 @ Sx.T @ Sx))
+        # tol = 1e-10
         # A[np.abs(A) < tol] =0
         # C[np.abs(C) < tol] = 0
         # B[np.abs(B) < tol] = 0
-        # print(A)
-        # print(B)
-        # print(C)
+        # print('A',A)
+        # print('B',B)
+        # print('C',C)
+        A = Ly.T @ Ly + lamb * Sy.T @ Sy
+        B = Lx.T @ Lx + lamb * Sx.T @ Sx
+        C = -((Ly.T @ self.s_dy + self.s_dx @ Lx) + lamb * (Sy.T @ Sy @ Z0 + Z0 @ Sx.T @ Sx))
+        # C = -((Ly.T @ self.s_dy + self.s_dx @ Lx) + lamb * (Sy.T @ Sy @ Z_sint + Z_sint @ Sx.T @ Sx))
+
+        # Z_sint=solve_sylvester(unoy,unox,-C)
+        # error = unoy @ Z_sint + Z_sint @ unox + C
+        # error = A @ Z_sint + Z_sint @ B + C
+        # print("Error de la solución Lyapunov sinikhonov:\n", error)
+
         Z = solve_sylvester(A, B, -C)
+
 
         error = A @ Z + Z @ B + C
         print("Error de la solución Lyapunov mediante tikhonov:\n", error)
         self.z=Z
         # self.funcion_coste_tik(self.s_dx,self.s_dy,Lx,Ly,Z0,Z,lamb)
+        return Z
+
 
     def reg_tikhonov2(self,Lx,Ly,lamb=1e-2):
         print('Aplicando tikhonov...')
-        Ux,Sx,Vxt = np.linalg.svd(Lx, full_matrices=False)
-        Uy, Sy, Vyt = np.linalg.svd(Ly, full_matrices=False)
+        Ux,Sx,Vxt = np.linalg.svd(Lx, full_matrices=True)
+        Uy, Sy, Vyt = np.linalg.svd(Ly, full_matrices=True)
 
         P=Uy@self.s_dy@Vxt.T
         Q=Vyt@self.s_dx@Ux
@@ -842,15 +937,80 @@ class Reconstruccion:
         print('sx', Sx.shape)
         # x=Sy.T@Sy
         # print(Q.dtype)
-        C=-(Sy@P+Q@Sx)
+        C=-(Ly.T@P+Q@Lx)
 
         Z=solve_sylvester(A, B,-C)
         error = A @ Z + Z @ B + C
         print("Error de la solución Lyapunov mediante tikhonov:\n", error)
         self.z = Z
+        return Z
 
 
+    def reg_tikhonov3(self,Lx,Ly,Sx,Sy,lamb=1e-2):
+        print('Aplicando tikhonov...')
+        # Ux,_,Vxt = np.linalg.svd(Lx, full_matrices=True)
+        # Uy, _, Vyt = np.linalg.svd(Ly, full_matrices=True)
+        Ux, Sx, Vxt = np.linalg.svd(Lx, full_matrices=True)
+        Uy, Sy, Vyt = np.linalg.svd(Ly, full_matrices=True)
 
+        P=Uy.T@self.s_dy@Vxt.T
+        Q=Vyt@self.s_dx@Ux
+        Sy=np.diag(Sy)
+        Sx = np.diag(Sx)
+        # print(Sx)
+
+        A=Ly+(lamb**2)*np.eye(Sy.shape[0])
+        B=Lx+(lamb**2)*np.eye(Sx.shape[0])
+        print('sy',Sy.shape)
+        print('p', P.shape)
+        print('q', Q.shape)
+        print('sx', Sx.shape)
+        print('Vxt', Vxt.shape)
+        print('Vyt', Vyt.shape)
+        # x=Sy.T@Sy
+        # print(Q.dtype)
+        C=-(Ly.T@P+Q@Lx)
+
+        Z=solve_sylvester(A, B,-C)
+        # Z=Vyt@Z@Vxt.T
+        error = A @ Z + Z @ B + C
+        print("Error de la solución Lyapunov mediante tikhonov:\n", error)
+        tol=300
+        Z[np.abs(Z) > tol] = 0
+        self.z = Z
+        return Z
+
+    def compute_lambda_using_svd(self, Lx, Ly, Sx, Sy):
+        # Combinar matrices Lx y Ly en una matriz más grande si es necesario
+        # Aquí solo un ejemplo usando Ly
+        U, sigma, VT = np.linalg.svd(Ly, full_matrices=False)
+
+        lambdas = np.logspace(-4, 1, 100)  # Explorar un rango de valores lambda
+        norm_x = []
+        norm_r = []
+
+        for lamb in lambdas:
+            # Usando la relación de las normas para la curva L
+            reg_term = lamb ** 2 / (sigma ** 2 + lamb ** 2)
+            fit_term = sigma ** 2 / (sigma ** 2 + lamb ** 2)
+            norm_x.append(np.sum(reg_term))
+            norm_r.append(np.sum(fit_term))
+
+        # Graficar la curva L
+        plt.figure(figsize=(8, 6))
+        plt.loglog(norm_r, norm_x, marker='o')
+        plt.xlabel('Norma de los residuos (fit_term)')
+        plt.ylabel('Norma de la regularización (reg_term)')
+        plt.title('Curva L para la selección de lambda')
+        plt.grid(True)
+        plt.show()
+
+        # Seleccionar un valor de lambda basado en el gráfico o automáticamente por un criterio
+        for i in range(len(lambdas)):
+            differences = np.abs(norm_x[i] - norm_r[i])
+        optimal_lambda_index = np.argmin(differences)
+        optimal_lambda = lambdas[optimal_lambda_index]  # Ejemplo de criterio simple
+        return optimal_lambda
 
     '-----------------------INTEGRACION POR MINIMOS CUADRADOS-----------------'
     def least_squares(self):
@@ -862,7 +1022,6 @@ class Reconstruccion:
         # Lx_s = self.ope_dif2(n)
         # Ly_s = self.ope_dif2(m)
         # Z_s= self.solve_sylvester(Lx_s,Ly_s)
-        # Z_t=self.reg_tikhonov2(Lx_s,Ly_s,Z_s,1e-1)
         # self.funcion_coste(self.s_dx,self.s_dy,Lx_s,Ly_s,Z_s)
         # self.funcion_coste_tik(self.s_dx, self.s_dy, Lx_s, Ly_s, Z_s,Z_t,1e-1)
 
@@ -877,10 +1036,12 @@ class Reconstruccion:
         'La que suelo usar no...?'
         # Lx2=self.ope_dif2(n)
         # Ly2 = self.ope_dif2(m)
-        # Z_house_2 = self.householder(Lx2, Ly2)
-        # Z_t=self.reg_tikhonov2(Lx2,Ly2,Z_house_2,1e-2)
-        # coste_hou_2 = self.funcion_coste(self.s_dx, self.s_dy, Lx2, Ly2, Z_house_2)
-        # self.funcion_coste_tik(self.s_dx, self.s_dy, Lx2, Ly2, Z_house_2,Z_t,1e-1)
+        # Z_h = self.householder(Lx2, Ly2)
+
+
+        # Z_th=self.reg_tikhonov2(Lx2,Ly2,Z_h,1e-2)
+        # coste_hou_2 = self.funcion_coste(self.s_dx, self.s_dy, Lx2, Ly2, Z_h)
+        # self.funcion_coste_tik(self.s_dx, self.s_dy, Lx2, Ly2, Z_house_2,Z_th,1e-1)
 
         # Lx3 = self.ope_dif3(n)
         # Ly3 = self.ope_dif3(m)
@@ -890,8 +1051,8 @@ class Reconstruccion:
 
 
         '-------------------TIKHONOV----------------------'
-        Lx = self.ope_dif2(n)
-        Ly = self.ope_dif2(m)
+        # Lx = self.ope_dif2(n)
+        # Ly = self.ope_dif2(m)
         # Sx=Lx@Lx
         # Sy=Ly@Ly
         # Lx = self.ope_dif3(n)
@@ -901,26 +1062,138 @@ class Reconstruccion:
         # Ly,Sy = self.diffmat2(m-1,(0,m-1))
         # Lx, Sx = self.diffcheb(n - 1, (0, n - 1))
         # Ly, Sy = self.diffcheb(m - 1, (0, m - 1))
-        #
 
-        #
-        # self.reg_tikhonov(Lx,Ly,Sx,Sy,lamb=1e-1)
+        Lx, _ = self.diffmat2(n - 1, (0, n - 1))
+        Ly,_ = self.diffmat2(m-1,(0,m-1))
+
+        Sx=self.segundadif(n)
+        Sy=self.segundadif(m)
+        Z_t=self.reg_tikhonov(Lx,Ly,Sx,Sy,lamb=1e-1)
+
         # self.reg_tikhonov2(Lx,Ly,lamb=1e-1)
+        # self.reg_tikhonov3(Lx, Ly, Sx, Sy, lamb=1e-1)
         # self.corregir_polinomio()
         # self.corregir_plano()
 
 
+
+        # Uso de la función
+        # optimal_lambda = self.compute_lambda_using_svd(Lx, Ly,Sx,Sy)
+        # print("Lambda óptimo calculado:", optimal_lambda)
+        # Z_t = self.reg_tikhonov(Lx, Ly, Sx, Sy, optimal_lambda)
+
+        # Z_t=self.reg_tikhonov(Lx,Ly,Sx,Sy,lamb=2e-1)
+        # Z_t = self.reg_tikhonov2(Lx,Ly,lamb=1e-3)
+
         '------------------DIRITCHLET------------------'
 
-        # Lx_s = self.ope_dif2(n)
-        # Ly_s = self.ope_dif2(m)
+        # Lx_d = self.ope_dif2(n)
+        # Ly_d = self.ope_dif2(m)
 
         # Lx_s, Sx = self.diffcheb(n - 1, (0, n - 1))
-        # Ly_s, Sy = self.diffcheb(m - 1, (0, m - 1))
-        # Z_s = self.reg_dirichlet(Lx_s, Ly_s)
+        # Ly_s, Sy = self.diffcheb(m - 1, (0, m -
+
+        # Z_d = self.reg_dirichlet(Lx_d, Ly_d)
+
+
+        '-------------MAPA DE CALOR------------'
+        # self.mapa_calor(Z_t)
 
 
 
+        # z_list = [ Z_t]
+        # z_name = [ 'Tikhonov']
+
+        # z_list = [Z_s, Z_t]
+        # z_name = ['No regularizada','Tikhonov']
+
+        Lx_s = self.ope_dif2(n)
+        Ly_s = self.ope_dif2(m)
+        Z_s = self.solve_sylvester(Lx_s, Ly_s)
+        #
+        Lx2 = self.ope_dif2(n)
+        Ly2 = self.ope_dif2(m)
+        Z_h = self.householder(Lx2, Ly2)
+        #
+        Lx, _ = self.diffmat2(n - 1, (0, n - 1))
+        Ly, _ = self.diffmat2(m - 1, (0, m - 1))
+
+        Sx = self.segundadif(n)
+        Sy = self.segundadif(m)
+        Z_t = self.reg_tikhonov(Lx, Ly, Sx, Sy, lamb=2e-1)
+        #
+        Lx_d = self.ope_dif2(n)
+        Ly_d = self.ope_dif2(m)
+        Z_d = self.reg_dirichlet(Lx_d, Ly_d)
+        #
+        Z_pol=self.corregir_polinomio(Z_s)
+        Z_pla=self.corregir_plano(Z_s)
+        #
+        z_list = [Z_s, Z_d, Z_h, Z_t, Z_pol, Z_pla]
+        z_name=['No regularizada','Dirichlet','Householder','Tikhonov','Polinomio','Plano']
+
+        self.plot_rpsd(z_list,z_name)
+        self.z=Z_t
+    '--------------------Analisis de Fourier-------------------'
+
+    def calc_rpsd(self,z,dx):
+        #calculamos el psd:
+        Z = np.fft.fftshift(np.fft.fft2(z))
+        # psd = np.abs(Z) ** 2 / (z.size)  # normalizacion por numero de puntos
+        psd = np.abs(Z) ** 2
+        psd /= np.sum(psd) #normalizacion por energia total
+
+        #calculamos las k ahora q estamos en su dominio
+        kx = np.fft.fftshift(np.fft.fftfreq(z.shape[0], dx))
+        ky = np.fft.fftshift(np.fft.fftfreq(z.shape[1], dx))
+        # kx = z.shape[0]
+        # ky = z.shape[1]
+        kx, ky = np.meshgrid(kx, ky)
+        kr = np.sqrt(kx ** 2 + ky ** 2)
+        # print(kr)
+        kr = kr.ravel()
+        psd = psd.ravel()
+
+        print(-np.max(kr))
+        print(np.max(kr))
+
+        #calculamos el RPSD
+        k_bins = np.linspace(0, np.max(kr), num=20)
+        k_val = 0.5 * (k_bins[1:] + k_bins[:-1])
+
+        rpsd, _ = np.histogram(kr, bins=k_bins, weights=psd)
+        rpsd_norm = rpsd / np.histogram(kr, bins=k_bins)[0]
+
+        # plt.hist(kr, bins=50, log=True)
+        # plt.title("Distribución de valores de kr")
+        # plt.xlabel("kr (frecuencia radial)")
+        # plt.ylabel("Cantidad")
+        # plt.show()
+
+        return k_val, rpsd_norm
+
+    def plot_rpsd(self,z_list,name_list):
+        plt.figure(figsize=(10, 6))
+
+        for i in range (len(z_list)):
+            k_val, RPSD = self.calc_rpsd(z_list[i], 1.042) #1.042
+            plt.plot(k_val, RPSD, label=name_list[i])
+
+
+
+        # plt.plot(k_val, RPSD, label='Superficie 1')
+        # Añadir más según necesario
+        plt.xlabel(r'k $(\mu m^{-1})$')
+        plt.ylabel(r'$\hat{W} (m^{3})$')
+        plt.xscale('log')
+        plt.yscale('log')
+        # plt.xlim([1e-1, 1e1])
+        # plt.xlim([8e-2, 1.2e1])
+        # plt.xlim([np.min(k_val) * 0.9, np.max(k_val) * 1.1])
+        plt.legend()
+        plt.title('Comparación de RPSDF')
+        plt.grid(True)
+        plt.show()
 
 
     '------------------------FUNCIONES COSTE-------------------'
@@ -968,8 +1241,9 @@ class Reconstruccion:
 
 
     '------------------------CORRECCIONES----------------------'
-    def corregir_plano(self):
-        z = np.copy(self.z)
+    def corregir_plano(self,z_reco):
+        # z = np.copy(self.z)
+        z = np.copy(z_reco)
         # z[:,200:-200]=0
 
         #mallado en funcion de z
@@ -994,7 +1268,7 @@ class Reconstruccion:
         z_corregido = z - plano_estimado
 
         # z_corregido = z + plano_estimado
-        self.z = z_corregido
+        # self.z = z_corregido
 
         # Mostrar resultados
         fig, axs = plt.subplots(1, 3, figsize=(15, 5))
@@ -1030,10 +1304,12 @@ class Reconstruccion:
         mae = np.mean(np.abs(z - z_corregido))
         print("Mean Squared Error (MSE):", mse)
         print("Mean Absolute Error (MAE):", mae)
+        return z_corregido
 
 
-    def corregir_polinomio(self, grado=4):
-        z = self.z
+    def corregir_polinomio(self, z_reco,grado=4):
+        # z = self.z
+        z=np.copy(z_reco)
         x_index, y_index = np.indices(z.shape)
 
         # Generar los términos del polinomio
@@ -1081,8 +1357,9 @@ class Reconstruccion:
         print("Suma de residuos cuadrados:", residuals)
         print("Mean Squared Error (MSE):", mse)
         print("Mean Absolute Error (MAE):", mae)
-        self.z = z_corregido
+        # self.z = z_corregido
         # return z_corregido, z_estimado, coeficientes, mse, mae
+        return z_corregido
 
 
     '---------------------------PLLOT--------------------------'
@@ -1109,7 +1386,7 @@ class Reconstruccion:
         # axis_1.set_zlim(bottom=-40, top=200)
         # axis_1.set_zticks(np.arange(-20, 40, 20))
 
-        # axis_1.get_proj = lambda: np.dot(Axes3D.get_proj(axis_1), np.diag([1.0, 1.0, 0.4, 1]))
+        axis_1.get_proj = lambda: np.dot(Axes3D.get_proj(axis_1), np.diag([1.0, 1.0, 0.4, 1]))
         axis_1.tick_params(axis='both', which='major', labelsize=7)
 
         mappable = cm.ScalarMappable(cmap=cm.plasma)
@@ -1140,7 +1417,7 @@ class Reconstruccion:
             axis_2.set_zlabel(r'Z $(\mu m)$')
             # axis_2.set_zticks(np.arange(-20, 40, 20))
 
-            # axis_2.get_proj = lambda: np.dot(Axes3D.get_proj(axis_2), np.diag([1.0, 1.0, 0.4, 1]))
+            axis_2.get_proj = lambda: np.dot(Axes3D.get_proj(axis_2), np.diag([1.0, 1.0, 0.4, 1]))
 
             axis_2.tick_params(axis='both', which='major', labelsize=7)
             # axis_2.secondary_xaxis()
@@ -1155,6 +1432,14 @@ class Reconstruccion:
             plt.show()
 
 
+    def mapa_calor(self,z):
+        fig = plt.figure(figsize=(5, 4))
+        ax = fig.add_subplot(111)
+        topo = ax.imshow(z, cmap='inferno')
+        fig.colorbar(topo, ax=ax, cmap='inferno')
+        ax.set_title('Topografía Reconstruida')
+        ax.axis('off')
+        plt.show()
 class Contornos:
     def __init__(self, Reconstruccion):
         self.z = Reconstruccion.z
@@ -1407,19 +1692,19 @@ class Histograma:
                 break
 
 # #
-# img_rutas = {'top': 'imagenes/SENOS1-B.BMP', 'bottom': 'imagenes/SENOS1-T.BMP', 'left': 'imagenes/SENOS1-L.BMP',
-#              'right': 'imagenes/SENOS1-R.BMP', 'textura': 'imagenes/SENOS1-S.BMP'}
+img_rutas = {'top': 'imagenes/SENOS1-B.BMP', 'bottom': 'imagenes/SENOS1-T.BMP', 'left': 'imagenes/SENOS1-L.BMP',
+             'right': 'imagenes/SENOS1-R.BMP', 'textura': 'imagenes/SENOS1-S.BMP'}
 
-# img_rutas = {'top': 'imagenes/CIRC1_T.BMP','bottom': 'imagenes/CIRC1_B.BMP','left': 'imagenes/CIRC1_L.BMP','right': 'imagenes/CIRC1_R.BMP','textura': 'imagenes/CIRC1.BMP'}
-
+# img_rutas = {'top': 'imagenes/CIRC1_B.BMP','bottom': 'imagenes/CIRC1_T.BMP','left': 'imagenes/CIRC1_L.BMP','right': 'imagenes/CIRC1_R.BMP','textura': 'imagenes/CIRC1.BMP'}
 # img_rutas = {'top': 'imagenes/RUEDA1_T.BMP','bottom': 'imagenes/RUEDA1_B.BMP','left': 'imagenes/RUEDA1_L.BMP','right': 'imagenes/RUEDA1_R.BMP','textura': 'imagenes/RUEDA1_S.BMP'}
 # img_rutas = {'top': 'imagenes/RUEDA3_T.BMP','bottom': 'imagenes/RUEDA3_B.BMP','left': 'imagenes/RUEDA3_L.BMP','right': 'imagenes/RUEDA3_R.BMP','textura': 'imagenes/RUEDA3.BMP'}
 
 
-
 # img_rutas = {'top': 'imagenes/4-C-T.BMP', 'bottom': 'imagenes/4-C-B.BMP', 'left': 'imagenes/4-C-L.BMP',
 #              'right': 'imagenes/4-C-R.BMP', 'textura': 'imagenes/4-C-S.BMP'}
+
 # 'modificando nombres...'
+
 # img_rutas = {'top': 'imagenes/4-C-B.BMP', 'bottom': 'imagenes/4-C-T.BMP', 'left': 'imagenes/4-C-R.BMP',
 #              'right': 'imagenes/4-C-L.BMP', 'textura': 'imagenes/4-C-S.BMP'}
 
@@ -1434,9 +1719,14 @@ class Histograma:
 # img_rutas = {'top': 'imagenes/RUEDA1_T.BMP','bottom': 'imagenes/RUEDA1_B.BMP','left': 'imagenes/RUEDA1_L.BMP','right': 'imagenes/RUEDA1_R.BMP','textura': 'imagenes/RUEDA1_S.BMP'}
 # img_rutas = {'top': 'imagenes/RUEDA3_T.BMP','bottom': 'imagenes/RUEDA3_B.BMP','left': 'imagenes/RUEDA3_L.BMP','right': 'imagenes/RUEDA3_R.BMP','textura': 'imagenes/RUEDA3.BMP'}
 
-#
-img_rutas = {'top': 'calibrado/0_4-B.BMP', 'bottom': 'calibrado/0_4-T.BMP', 'left': 'calibrado/0_4-L.BMP',
-             'right': 'calibrado/0_4-R.BMP', 'textura': 'calibrado/0_4-S.BMP'} #son 960 x 1280 pixeles
+'pa arriba'
+# img_rutas = {'top': 'calibrado/0_4-B.BMP', 'bottom': 'calibrado/0_4-T.BMP', 'left': 'calibrado/0_4-L.BMP',
+#              'right': 'calibrado/0_4-R.BMP', 'textura': 'calibrado/0_4-S.BMP'} #son 960 x 1280 pixeles
+'averrr_--> pa abajo'
+
+# img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'left': 'calibrado/0_4-R.BMP',
+#              'right': 'calibrado/0_4-L.BMP', 'textura': 'calibrado/0_4-S.BMP'}
+
 
 
 # img_rutas = {'top': 'calibrado/0_6-T.BMP', 'bottom': 'calibrado/0_6-B.BMP', 'left': 'calibrado/0_6-L.BMP',
@@ -1470,7 +1760,7 @@ cargar = Cargarimagenes(img_rutas)
 #
 reconstruir = Reconstruccion(cargar)
 
-# contornear = Contornos(reconstruir)
+contornear = Contornos(reconstruir)
 # perfil=contornear.contornear_y(pos_x=480)
 # perfi=contornear.contornear_x(pos_y=640)
 # perfi=contornear.contornear_x(pos_y=800)
@@ -1479,3 +1769,7 @@ reconstruir = Reconstruccion(cargar)
 # perfil=contornear.contornear_y(pos_x=10)
 # perfil=contornear.contornear_y(pos_x=1200)
 # perfi=contornear.pilacontornos_x(20)
+
+end_total=time.time()
+
+print(f'Se ha ejecutado todo el código en un tiempo de: {end_total-start_total}')
