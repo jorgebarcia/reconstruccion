@@ -1,6 +1,7 @@
 import cv2
 import matplotlib
 import sns
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.integrate import cumulative_trapezoid, trapezoid
 import numpy as np
@@ -500,10 +501,10 @@ class Reconstruccion:
         # self.integrar_bidireccional(c=85.36, d=100, z0=0, ver=True)
         # self.integrar_poisson_con_gradientes(1,1,0,ver=True)
 
-        self.integracion(z0=0)
-        # self.integrar_bidireccional( z0=0)
+        # self.integracion(z0=0)
+        self.integrar_bidireccional( z0=0)
         # self.integrar_bidireccional_mal(0)
-        # self.integrar_cuatro_direcciones(0)
+
         # self.integrar_poisson()
         # self.integrar_poisson_bicgstab()
         # self.integrar_poisson_spsolve()
@@ -519,7 +520,7 @@ class Reconstruccion:
         # self.corregir_polinomio()
 
         "Reconstrucción y visualizador 3D"
-        self.plot_superficie(ver_textura=True)
+        self.plot_superficie(ver_textura=False)
 
     def calculo_gradientes(self,c,d, eps=1e-5, ver=True):
         '''
@@ -1063,6 +1064,7 @@ class Reconstruccion:
 
 
     def plot_superficie(self, ver_textura=True):
+
         # plt.ion()
 
         x, y = np.meshgrid(np.arange(self.z.shape[1]), np.arange(self.z.shape[0]))
@@ -1070,9 +1072,10 @@ class Reconstruccion:
         # primera figura
         sin_textura = plt.figure()
         axis_1 = sin_textura.add_subplot(111, projection='3d')
-        axis_1.plot_surface(x * self.dpixel, y * self.dpixel, self.z, cmap='plasma',shade=True)
+        # axis_1 = sin_textura.add_subplot(111, projection='3d', position=[1, 1, 20, 20])
+        surf=axis_1.plot_surface(x * self.dpixel, y * self.dpixel, self.z, cmap='plasma',shade=True)
 
-        axis_1.set_title('Topografia sin textura')
+        # axis_1.set_title('Topografia sin textura')
         # axis_1.set_xlabel('X (mm)')
         # axis_1.set_ylabel('Y (mm)')
         # axis_1.set_zlabel('Z (mm)')
@@ -1081,16 +1084,22 @@ class Reconstruccion:
         axis_1.set_ylabel(r'Y $(\mu m)$')
         axis_1.set_zlabel(r'Z $(\mu m)$')
 
-        # axis_1.xlim(-self.dpixel, self.dpixel)
-        # axis_1.set_zlim(bottom=-40, top=200)
-        # axis_1.set_zticks(np.arange(-20, 40, 20))
+        # axis_1.set_xlim(-self.dpixel, self.dpixel)
+        # axis_1.set_zlim(bottom=-130, top=-0)
+        axis_1.set_zticks(np.arange(np.min(self.z) ,np.max(self.z), 10))
 
-        axis_1.get_proj = lambda: np.dot(Axes3D.get_proj(axis_1), np.diag([1.0, 1.0, 0.4, 1]))
+        # axis_1.get_proj = lambda: np.dot(Axes3D.get_proj(axis_1), np.diag([1.0, 1.0, 0.4, 1]))
+        axis_1.get_proj = lambda: np.dot(Axes3D.get_proj(axis_1), np.diag([1, 1, 0.4, 1]))
         axis_1.tick_params(axis='both', which='major', labelsize=7)
+
+
+        # Ajusta el layout para mejorar la presentación
+        # plt.tight_layout()
 
         mappable = cm.ScalarMappable(cmap=cm.plasma)
         mappable.set_array(self.z)
-        plt.colorbar(mappable, ax=axis_1, orientation='vertical', label='Altura (mm)', shrink=0.5, pad=0.2)
+        plt.colorbar(mappable, ax=axis_1, orientation='vertical', label=r'Z $(\mu m)$', shrink=0.5, pad=0.06)
+        sin_textura.subplots_adjust(left=0.1, right=0.9, bottom=0.2, top=0.9)
 
         if ver_textura and self.datos.textura is not None:
 
@@ -1128,7 +1137,7 @@ class Reconstruccion:
             mappable_gray.set_array(self.z)
             plt.colorbar(mappable_gray, ax=axis_2, orientation='vertical', label='Intensidad', shrink=0.5, pad=0.2)
 
-            plt.show()
+        plt.show()
 
 
 class Contornos:
@@ -1411,8 +1420,8 @@ class Histograma:
 # img_rutas = {'top': 'imagenes/RUEDA3_T.BMP','bottom': 'imagenes/RUEDA3_B.BMP','left': 'imagenes/RUEDA3_L.BMP','right': 'imagenes/RUEDA3_R.BMP','textura': 'imagenes/RUEDA3.BMP'}
 
 #
-img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'left': 'calibrado/0_4-L.BMP',
-             'right': 'calibrado/0_4-R.BMP', 'textura': 'calibrado/0_4-S.BMP'} #son 960 x 1280 pixeles
+# img_rutas = {'top': 'calibrado/0_4-B.BMP', 'bottom': 'calibrado/0_4-T.BMP', 'left': 'calibrado/0_4-B.BMP',
+#              'right': 'calibrado/0_4-L.BMP', 'textura': 'calibrado/0_4-S.BMP'} #son 960 x 1280 pixeles
 
 
 # img_rutas = {'top': 'calibrado/0_6-T.BMP', 'bottom': 'calibrado/0_6-B.BMP', 'left': 'calibrado/0_6-L.BMP',
@@ -1431,7 +1440,8 @@ img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'lef
 #              'right': 'imagenes/4-C-R.BMP', 'textura': 'imagenes/4-C-S.BMP'}
 
 
-
+img_rutas = {'top': 'calibrado/04P_T.BMP', 'bottom': 'calibrado/04P_B.BMP', 'left': 'calibrado/04P_L.BMP',
+             'right': 'calibrado/04P_R.BMP', 'textura': 'calibrado/04P_S.BMP'}
 
 cargar = Cargarimagenes(img_rutas)
 # histograma = Histograma(cargar)

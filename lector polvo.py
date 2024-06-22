@@ -43,10 +43,13 @@ from scipy.stats import norm
 plt.style.use('ggplot')
 
 # Cargar datos
-df = pd.read_csv('imagenes/polvo8t.csv')
+# df = pd.read_csv('imagenes/polvo8t.csv')
+df = pd.read_csv('imagenes/Results 16.csv')
+# df = pd.read_csv('imagenes/feret.csv')
 
 # Ajustar los datos a una distribución normal
 mu, std = norm.fit(df['Length'])
+# mu, std = norm.fit(df['Feret'])
 
 # Configurar los colores según tu póster
 color_histograma = '#214579'  # Un azul oscuro

@@ -418,9 +418,9 @@ class Reconstruccion:
 
         "funciones"
         # self.integracion(1,1,0)
-        # self.integrar_bidireccional(1,1,0)
+        self.integrar_bidireccional(1,1,0)
         # self.integracion_variacional()
-        self.integracion_variacional_por_bloques()
+        # self.integracion_variacional_por_bloques()
         # self.corregir_plano()
         # self.corregir_polinomio()
         self.plot_superficie(ver_textura=True)
@@ -455,7 +455,7 @@ class Reconstruccion:
         i_d = self.datos.img_dict['bottom'].astype(np.float32)
 
         # restriingimos la division por cero para uqe no nos salte ningun error
-        s_dx = (i_a - i_b) / np.clip(i_a + i_b, eps, np.inf)
+        s_dx = (i_a - i_v) / np.clip(i_a + i_b, eps, np.inf)
         s_dy = (i_d - i_c) / np.clip(i_c + i_d, eps, np.inf)
 
         # Integración de izquierda a derecha en x
@@ -725,14 +725,14 @@ class Reconstruccion:
         x, y = np.meshgrid(np.arange(self.z.shape[1]), np.arange(self.z.shape[0]))
         sin_textura = plt.figure()
         axis_1 = sin_textura.add_subplot(111, projection='3d')
-        axis_1.plot_surface(x * self.dpixel, y * self.dpixel, self.z, cmap='hot', shade=True)
+        axis_1.plot_surface(x * self.dpixel, y * self.dpixel, self.z, cmap='plasma', shade=True)
         axis_1.set_title('Topografia sin textura')
         axis_1.set_xlabel(r'X $(\mu m)$')
         axis_1.set_ylabel(r'Y $(\mu m)$')
         axis_1.set_zlabel(r'Z $(\mu m)$')
         axis_1.get_proj = lambda: np.dot(Axes3D.get_proj(axis_1), np.diag([1.0, 1.0, 0.4, 1]))
         axis_1.tick_params(axis='both', which='major', labelsize=7)
-        mappable = cm.ScalarMappable(cmap=cm.hot)
+        mappable = cm.ScalarMappable(cmap=cm.plasma)
         mappable.set_array(self.z)
         plt.colorbar(mappable, ax=axis_1, orientation='vertical', label='Altura (mm)', shrink=0.5, pad=0.2)
 
@@ -1002,8 +1002,8 @@ class Histograma:
                 break
 
 #
-img_rutas = {'top': 'imagenes/SENOS1-T.BMP', 'bottom': 'imagenes/SENOS1-B.BMP', 'left': 'imagenes/SENOS1-L.BMP',
-             'right': 'imagenes/SENOS1-R.BMP', 'textura': 'imagenes/SENOS1-S.BMP'}
+# img_rutas = {'top': 'imagenes/SENOS1-T.BMP', 'bottom': 'imagenes/SENOS1-B.BMP', 'left': 'imagenes/SENOS1-L.BMP',
+#              'right': 'imagenes/SENOS1-R.BMP', 'textura': 'imagenes/SENOS1-S.BMP'}
 
 # img_rutas = {'top': 'imagenes/4-C-T.BMP', 'bottom': 'imagenes/4-C-B.BMP', 'left': 'imagenes/4-C-L.BMP',
 #              'right': 'imagenes/4-C-R.BMP', 'textura': 'imagenes/4-C-S.BMP'}
@@ -1017,7 +1017,8 @@ img_rutas = {'top': 'imagenes/SENOS1-T.BMP', 'bottom': 'imagenes/SENOS1-B.BMP', 
 
 # img_rutas = {'top': 'imagenes/RUEDA1_T.BMP','bottom': 'imagenes/RUEDA1_B.BMP','left': 'imagenes/RUEDA1_L.BMP','right': 'imagenes/RUEDA1_R.BMP','textura': 'imagenes/RUEDA1_S.BMP'}
 # img_rutas = {'top': 'imagenes/RUEDA3_T.BMP','bottom': 'imagenes/RUEDA3_B.BMP','left': 'imagenes/RUEDA3_L.BMP','right': 'imagenes/RUEDA3_R.BMP','textura': 'imagenes/RUEDA3.BMP'}
-
+img_rutas = {'top': 'calibrado/0_4-B.BMP', 'bottom': 'calibrado/0_4-T.BMP', 'left': 'calibrado/0_4-B.BMP',
+             'right': 'calibrado/0_4-L.BMP', 'textura': 'calibrado/0_4-S.BMP'} #son 960 x 1280 pixeles
 
 # plt.ion()
 
