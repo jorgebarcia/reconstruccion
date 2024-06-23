@@ -16,6 +16,7 @@ from skimage.metrics import structural_similarity as ssim
 from skimage.metrics import peak_signal_noise_ratio as psnr
 from scipy import linalg
 import time
+from scipy.ndimage import maximum_filter, minimum_filter
 import timeit
 from scipy.sparse import lil_matrix, csr_matrix
 from scipy.sparse.linalg import bicgstab, spsolve
@@ -121,7 +122,7 @@ class Procesarimagenes:
         self.ruido = None
 
         'aplicamos funciones'
-        self.nivel_ruido()
+        # self.nivel_ruido()
         # self.filtro(ver=False)
         # self.aplicar_fourier(ver=False)
         # self.filtro(ver=False)
@@ -143,7 +144,7 @@ class Procesarimagenes:
 
         return self.ruido
 
-    def filtro(self, sigma = 20, ver = True):
+    def filtro(self, sigma = 100, ver = True):
     # def filtro(self, sigma=5, ver=True):
         '''
         Funcion que aplica un filtro gaussiano a nuestras imagenes
@@ -156,7 +157,7 @@ class Procesarimagenes:
             self.datos.img_dict[key] = gaussian_filter(image, sigma=sigma)
             print(f'La imagen {key} se ha filtrado')
 
-            if ver == True:
+            if ver:
                 canva = plt.figure(figsize=(8,3))
                 original=canva.add_subplot(121)
                 original.imshow(img_no_filtrada, cmap ='gray')
@@ -203,7 +204,7 @@ class Procesarimagenes:
             t_fourier=self.transformada_fourier(image)
             # r=self.estimacion_radio(t_fourier)
             # r=self.estimacion_radio()
-            r=50
+            r=500
             image_trans = self.filtro_trans_inversa(t_fourier,r)
 
             #metricas de calidad de la imagen:
@@ -326,8 +327,8 @@ class Reconstruccion:
         "Calibración"
         # self.dpixel = 1 / 251 # piezas bj (primera sesion)
         # self.dpixel = 500/251 # piezas FDM (15 abril)
-        self.dpixel = 0.9598 #pixels/um #calibracion
-        # calibracion (04 --> a'=a*0.853) ! 06 -->
+        # self.dpixel = 1/0.9598 #um/pixels #calibracion
+        self.dpixel= 1.9853 #um/pixels pa las de rugosidad
 
         'Gradientes --> siempre activa'
         # self.calculo_gradientes(1,1,eps=1e-5, ver=False) #c=85.36, d=100
@@ -445,6 +446,7 @@ class Reconstruccion:
         plt.grid(True)
         plt.show()
 
+
     def calc_P(self,n):
         '''
         Función de apoyo para el metodo householder
@@ -464,20 +466,7 @@ class Reconstruccion:
         return P
 
     '-------------OPERADORES DIFERENCIACION------------------'
-    def ope_difforward(self,n, h=1):
 
-        D = np.zeros((n, n))
-
-        for i in range(0, n):
-            D[i, i] = -1
-            D[i - 1, i] = 1
-
-        D[-1, - 1] = 1
-        D[-1, 0] = 0
-        D[-1, -2] = -1
-
-        D = D / h
-        return D
 
 
     def ope_dif2(self,n, h=1):
@@ -502,24 +491,18 @@ class Reconstruccion:
         return D
 
 
-    def ope_dif3(self,n, h=1):
-        D = np.zeros((n, n))
+    def segundadif(self,n):
+        # Crear una matriz de ceros de tamaño n x n
+        L = np.zeros((n, n))
 
-        for i in range(0, n):
-            D[i - 1, i] = 1
-            D[i, i - 1] = -1
-
-        D[-1, 0] = 0
-        D[0, -1] = 0
-        D[0, 0] = -3
-        D[-1, -1] = 3
-        D[0, 1] = 4
-        D[-1, -2] = -4
-        D[0, 2] = -1
-        D[-1, -3] = 1
-
-        D = D / (2 * h)
-        return D
+        # Llenar la matriz con los valores adecuados para la segunda diferencia
+        for i in range(n):
+            if i > 0:
+                L[i, i - 1] = 1
+            L[i, i] = -2
+            if i < n - 1:
+                L[i, i + 1] = 1
+        return L
 
 
     def diffmat2(self,n, xspan):
@@ -555,52 +538,6 @@ class Reconstruccion:
 
         return D_x, D_xx
 
-
-    def diffcheb(self,n, xspan):
-        """
-        Compute Chebyshev differentiation matrices on `n`+1 points in the
-        interval `xspan`. Returns a vector of nodes and the matrices for the
-        first and second derivatives.
-        """
-        # Nodes in [-1,1]
-        x = -np.cos(np.arange(n + 1) * np.pi / n)
-
-        # Off-diagonal entries
-        c = np.hstack(([2], np.ones(n - 1), [2]))  # endpoint factors
-        D_x = np.zeros((n + 1, n + 1))
-        for i in range(n + 1):
-            for j in range(n + 1):
-                if i != j:
-                    D_x[i, j] = (-1) ** (i + j) * c[i] / (c[j] * (x[i] - x[j]))
-
-        # Diagonal entries
-        D_x[np.isinf(D_x)] = 0  # fix divisions by zero on diagonal
-        s = np.sum(D_x, axis=1)
-        np.fill_diagonal(D_x, -s)  # "negative sum trick"
-
-        # Transplant to [a, b]
-        a, b = xspan
-        x = a + (b - a) * (x + 1) / 2
-        D_x = 2 * D_x / (b - a)  # chain rule
-
-        # Second derivative
-        D_xx = np.dot(D_x, D_x)
-
-        return  D_x, D_xx
-
-    def segundadif(self,n):
-        # Crear una matriz de ceros de tamaño n x n
-        L = np.zeros((n, n))
-
-        # Llenar la matriz con los valores adecuados para la segunda diferencia
-        for i in range(n):
-            if i > 0:
-                L[i, i - 1] = 1
-            L[i, i] = -2
-            if i < n - 1:
-                L[i, i + 1] = 1
-        return L
-
     '-----------------METODOS DE INTEGRACION-----------------'
     def householder(self,sdx,sdy,Lx,Ly):
         '''
@@ -610,7 +547,7 @@ class Reconstruccion:
         :return:
         '''
         print('\n Integracion mediante el método HOUSEHOLDER... \n --------------------------- \n')
-        # start_house=time.time()
+        start_house=time.time()
         # m, n = self.s_dx.shape
 
         n=Lx.shape[0] #ambas son nxn o mxm
@@ -670,7 +607,7 @@ class Reconstruccion:
 
         #resolvemos el termino W11 segun la nueva formulacion Sylvester:
         W11 = solve_sylvester(A, B, -C)
-        # error = A @ W11 + W11 @ B + C
+        error = A @ W11 + W11 @ B + C
         # print("Error de la solución Householder:", error)  #muy bajo, es 0
 
         #reconstruimos W... W[0,0]=0 sería como Z0, nos d aigual
@@ -688,8 +625,8 @@ class Reconstruccion:
         end_house=time.time()
         # print(f'\n Se ha aplicado el metodo householder con una duracion de:{end_house-start_house}')
         # return Z, lytly,lxtlx,G,error,end_house-start_house
-        # return Z, error, end_house - start_house
-        return Z
+        return Z, error, end_house - start_house
+        # return Z
 
     def solve_sylvester(self,sdx,sdy,Lx,Ly):
         '''
@@ -699,20 +636,20 @@ class Reconstruccion:
         :return:
         '''
         print('Aplicando integracion mediante sylvester sin regulaciones....')
-        # start_syl=time.time()
+        start_syl=time.time()
         A = Ly.T @ Ly
         B = Lx.T @ Lx
         C = - (Ly.T @ sdy + sdx @ Lx)
 
         Z = solve_sylvester(A, B, -C)
-        # error = A @ Z + Z @ B + C
+        error = A @ Z + Z @ B + C
         # print("Error de la solución Lyapunov:", error)
 
         self.z = Z
         end_syl = time.time()
         # print(f'Duracion integracion por sylvester: {end_syl-start_syl}')
-        # return Z,error, end_syl-start_syl
-        return Z
+        return Z,error, end_syl-start_syl
+        # return Z
 
     def reg_dirichlet(self,sdx,sdy,Lx,Ly):
         print('Aplicando regularizacion de dirichlet...')
@@ -810,7 +747,8 @@ class Reconstruccion:
         B = Lx.T @ Lx + lamb * Sx.T @ Sx
         C = -((Ly.T @ sdy + sdx @ Lx) + lamb * (Sy.T @ Sy @ Z0 + Z0 @ Sx.T @ Sx))
         # C = -((Ly.T @ self.s_dy + self.s_dx @ Lx) + lamb * (Sy.T @ Sy @ Z_sint + Z_sint @ Sx.T @ Sx))
-
+        # Zx = convolve2d(Z, Sx, mode='same', boundary='symm')
+        # Zy = convolve2d(Z, Sy, mode='same', boundary='symm')
         # Z_sint=solve_sylvester(unoy,unox,-C)
         # error = unoy @ Z_sint + Z_sint @ unox + C
         # error = A @ Z_sint + Z_sint @ B + C
@@ -923,32 +861,32 @@ class Reconstruccion:
         # z_list = [Z_s, Z_t]
         # z_name = ['No regularizada','Tikhonov']
 
-        # Lx_s = self.ope_dif2(n)
-        # Ly_s = self.ope_dif2(m)
-        # Z_s = self.solve_sylvester(Lx_s, Ly_s)
-        # #
-        # Lx2 = self.ope_dif2(n)
-        # Ly2 = self.ope_dif2(m)
-        # Z_h = self.householder(Lx2, Ly2)
+        Lx_s = self.ope_dif2(n)
+        Ly_s = self.ope_dif2(m)
+        Z_s = self.solve_sylvester(Lx_s, Ly_s)
         #
-        # Lx, _ = self.diffmat2(n - 1, (0, n - 1))
-        # Ly, _ = self.diffmat2(m - 1, (0, m - 1))
-        #
-        # Sx = self.segundadif(n)
-        # Sy = self.segundadif(m)
-        # Z_t,_,_,_ = self.reg_tikhonov(Lx, Ly, Sx, Sy, lamb=1e-1)
-        #
+        Lx2 = self.ope_dif2(n)
+        Ly2 = self.ope_dif2(m)
+        Z_h = self.householder(Lx2, Ly2)
+
+        Lx, _ = self.diffmat2(n - 1, (0, n - 1))
+        Ly, _ = self.diffmat2(m - 1, (0, m - 1))
+
+        Sx = self.segundadif(n)
+        Sy = self.segundadif(m)
+        Z_t,_,_,_ = self.reg_tikhonov(Lx, Ly, Sx, Sy, lamb=1e-1)
+
         # self.mapa_calor(Z_t)
         # self.plot_superficie(Z_t)
         #
         Lx_d = self.ope_dif2(n)
         Ly_d = self.ope_dif2(m)
         Z_d = self.reg_dirichlet(Lx_d, Ly_d)
-        self.funcion_coste(self.s_dx,self.s_dy, Lx_d,Ly_d,Z_d)
-        self.plot_superficie(Z_d,False)
-        # #
-        # Z_pol=self.corregir_polinomio(Z_s)
-        # Z_pla=self.corregir_plano(Z_s)
+        # self.funcion_coste(self.s_dx,self.s_dy, Lx_d,Ly_d,Z_d)
+        # self.plot_superficie(Z_d,False)
+        #
+        Z_pol=self.corregir_polinomio(Z_s)
+        Z_pla=self.corregir_plano(Z_s)
         #
         # z_list = [Z_s, Z_h]
         # z_name=['No regularizada','Householder']
@@ -966,14 +904,6 @@ class Reconstruccion:
         # self.z=Z_s
 
 
-
-    # def tiempos(self):
-
-        # tiempo = timeit.repeat('prueba_syl', setup='from __main__ import prueba_syl', number=10, repeat=5)
-        # print(f"Tiempo promedio de ejecución de sylvester: {sum(tiempo) / len(tiempo)} segundos")
-
-        # tiempo = timeit.repeat('householder', setup='from __main__ import householder', number=10, repeat=5)
-        # print(f"Tiempo promedio de ejecución de householder: {sum(tiempo) / len(tiempo)} segundos")
     '--------------------Analisis de Fourier-------------------'
 
     def calc_rpsd(self,z,dx):
@@ -1027,7 +957,7 @@ class Reconstruccion:
         # plt.axvline(x=1e-1, color='green', linestyle='--')
 
         plt.axvline(x=4e-2, color='blue', linestyle='--')
-        plt.axvline(x=1.1e-1, color='green', linestyle='--')
+        plt.axvline(x=1.1e-1, color='red', linestyle='--')
 
         # plt.plot(k_val, RPSD, label='Superficie 1')
         # Añadir más según necesario
@@ -1164,7 +1094,7 @@ class Reconstruccion:
         return z_corregido
 
 
-    def corregir_polinomio(self, z_reco,grado=4):
+    def corregir_polinomio(self, z_reco,verpol=False,grado=3):
         # z = self.z
         z=np.copy(z_reco)
         x_index, y_index = np.indices(z.shape)
@@ -1193,32 +1123,32 @@ class Reconstruccion:
         mae = np.mean(np.abs(z - z_estimado))
         # plot_3d=plt.figure(figsize=(7,7))
 
-        # Visualización
-        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
-        # cmaps = ['viridis', 'plasma', 'inferno']
-        # cmaps=['plasma']
+        if verpol:
+            fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+            # cmaps = ['viridis', 'plasma', 'inferno']
+            # cmaps=['plasma']
 
-        for ax, data, title in zip(axs, [z, z_estimado, z_corregido],
-                                         ['Topografía Original', 'Superficie Polinomial Estimada',
-                                          'Topografía Corregida'],
-                                   ):
-            n,m=z.shape
-            img = ax.imshow(data, cmap='plasma', aspect=None,extent=[0, m, 0, n])
-            ax.set_title(title)
-            ax.set_xlabel(r'X $(\mu m)$')
-            ax.set_ylabel(r'Y $(\mu m)$')
-            # ax.axis('off')
-            fig.colorbar(img, ax=ax,shrink=0.55, label=r'Z $(\mu m)$',pad=0.02)
+            for ax, data, title in zip(axs, [z, z_estimado, z_corregido],
+                                             ['Topografía Original', 'Superficie Polinomial Estimada',
+                                              'Topografía Corregida'],
+                                       ):
+                n,m=z.shape
+                img = ax.imshow(data, cmap='plasma', aspect=None,extent=[0, m, 0, n])
+                ax.set_title(title)
+                ax.set_xlabel(r'X $(\mu m)$')
+                ax.set_ylabel(r'Y $(\mu m)$')
+                # ax.axis('off')
+                fig.colorbar(img, ax=ax,shrink=0.55, label=r'Z $(\mu m)$',pad=0.02)
 
-        plt.show()
-        # Métricas
-        print('\n Valores correccion desviacion planar (polinomio): \n --------------\n')
-        print("Coeficientes del polinomio:", coeficientes)
-        print("Suma de residuos cuadrados:", residuals)
-        print("Mean Squared Error (MSE):", mse)
-        print("Mean Absolute Error (MAE):", mae)
-        # self.z = z_corregido
-        # return z_corregido, z_estimado, coeficientes, mse, mae
+            plt.show()
+            # Métricas
+            print('\n Valores correccion desviacion planar (polinomio): \n --------------\n')
+            print("Coeficientes del polinomio:", coeficientes)
+            print("Suma de residuos cuadrados:", residuals)
+            print("Mean Squared Error (MSE):", mse)
+            print("Mean Absolute Error (MAE):", mae)
+            # self.z = z_corregido
+            # return z_corregido, z_estimado, coeficientes, mse, mae
         return z_corregido
 
 
@@ -1231,6 +1161,9 @@ class Reconstruccion:
         sin_textura = plt.figure()
         axis_1 = sin_textura.add_subplot(111, projection='3d')
         axis_1.plot_surface(x * self.dpixel, y * self.dpixel, z, cmap='plasma',shade=True)
+        print(x.shape, y.shape)
+        print((x * self.dpixel).shape, (y * self.dpixel).shape)
+        print(self.dpixel)
 
         axis_1.set_title('Topografia sin textura')
         # axis_1.set_xlabel('X (mm)')
@@ -1316,12 +1249,12 @@ class Contornos:
         # self.contornear_y(300)
         # self.muchos_contorno_x(5)
 
-    def contornear_x(self, pos_y):
+    def contornear_x(self,z, pos_y):
         # pos_y = 20  # 20 por ejemplo
-        perfil = self.z[pos_y, :]
+        perfil = z[pos_y, :]
         perfil = gaussian_filter(perfil, sigma=1)
         ax_x = np.arange(len(perfil)) * self.dpixel
-
+        # print(len(perfil))
         'Ra'
         media_perfil = np.mean(perfil)
 
@@ -1343,7 +1276,7 @@ class Contornos:
         minimos_5 = minimos[np.argsort(minimos_val)[-5:]]
 
         # pasamos al espacio de indices de perfil a traves del orden hecho
-        Rz = np.sum(np.abs(perfil[pikos_5])) / pikos_5.size + np.sum(
+        R10z = np.sum(np.abs(perfil[pikos_5])) / pikos_5.size + np.sum(
             np.abs(perfil[minimos_5])) / minimos_5.size  # por si acaso no hubiese 5 picos
 
         # ploteamos:
@@ -1375,17 +1308,16 @@ class Contornos:
 
         plt.show()
 
-    def contornear_y(self, pos_x):
+    def contornear_y(self,z, pos_x):
         # pos_y = 20  # 20 por ejemplo
-        perfil = self.z[:, pos_x]
+        perfil = z[:, pos_x]
         perfil = gaussian_filter(perfil, sigma=1)
         ax_x = np.arange(len(perfil)) * self.dpixel
 
         'Ra'
         media_perfil = np.mean(perfil)
 
-        Ra = np.mean(np.abs(
-            perfil - media_perfil))  # rugosidad media aritmetica  -> promedio abs desviaciones a lo largo de la muestra
+        Ra = np.mean(np.abs(perfil - media_perfil))  # rugosidad media aritmetica  -> promedio abs desviaciones a lo largo de la muestra
         Rmax = np.max(perfil)
         Rmin = np.min(perfil)
 
@@ -1397,16 +1329,15 @@ class Contornos:
         minimos_val = perfil[minimos]  # valores nominales minimos
 
         # np.argsort(pikos_alturas) --> nos devuelve un array =shape que tiene: [0]- mas bajo....[-1] mas alto
-        # nos movemos en el espacio de indices de pikos_val
         pikos_5 = pikos[np.argsort(pikos_val)[-5:]]
         minimos_5 = minimos[np.argsort(minimos_val)[-5:]]
 
-        # pasamos al espacio de indices de perfil a traves del orden hecho
+
         Rz = np.sum(np.abs(perfil[pikos_5])) / pikos_5.size + np.sum(
             np.abs(perfil[minimos_5])) / minimos_5.size  # por si acaso no hubiese 5 picos
 
         # ploteamos:
-        contorno = plt.figure(figsize=(10, 4))
+        contorno = plt.figure(figsize=(12, 3))
         ax = contorno.add_subplot(111)
 
         ax.plot(ax_x, perfil, '#4682B4', label=f'Contorno en y={pos_x}')
@@ -1429,10 +1360,11 @@ class Contornos:
         ax.plot([ancho, ancho], [media_perfil, media_perfil + Ra], 'k-', lw=1)
         ax.plot([ancho - alto / 2, ancho + alto / 2], [media_perfil + Ra, media_perfil + Ra], 'k-', lw=1)
         ax.plot([ancho - alto / 2, ancho + alto / 2], [media_perfil, media_perfil], 'k-', lw=1)
-        ax.text(ancho + alto, media_perfil + Ra / 2, f'Δz={Ra:.2f}', va='center', ha='left', backgroundcolor='w')
+        ax.text(ancho + alto, media_perfil + Ra / 2, f'Δz={Ra:.2f}', va='top', ha='right', backgroundcolor='w')
         # ax.legend()
         # plt.legend(fontsize='small', loc='upper left', bbox_to_anchor=(1, 1))
-        plt.legend(fontsize='xx-small')
+        # plt.legend(fontsize='xx-small')
+        plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
         plt.tick_params(axis='both', which='major', labelsize=8)
         plt.title(f'Perfil a lo largo de la posición x= {pos_x}')
         plt.xlabel(r'Distancia $(\mu m)$')
@@ -1440,56 +1372,221 @@ class Contornos:
         plt.show()
 
         print('\n Rugosidades: \n ------------- \n')
+        print(f'Contorno del eje y en la posición x={pos_x}')
         print(f'Ra (media) = {Ra}')
         print(f'Rmax = {Rmax}')
         print(f'Rmin = {Rmin}')
         if Rz is not None: print(f'Rz = {Rz}')
 
         return perfil,ax_x
-    def pilacontornos_x(self, ncontorno):
-            pos_y = np.random.randint(0, self.z.shape[0], ncontorno)
-            pos_y = np.sort(pos_y)
 
-            # contornos_fig=plt.figure(figsize=(20, 10))
-            contornos_fig = plt.figure()
-            ax = contornos_fig.add_subplot(111, projection='3d')
+    def parametros3d(self,z):
+        # Calcula parámetros de rugosidad
+        Sa = np.mean(np.abs(z - np.mean(z)))
+        Sq = np.sqrt(np.mean((z - np.mean(z)) ** 2))
 
-            contorno_x = np.arange(self.z.shape[1]) * self.dpixel
+        # Aplanamos la matriz para poder utilizar find_peaks
+        z_flattened = z.ravel()
+        picos, _ = find_peaks(z_flattened)
+        valles, _ = find_peaks(-z_flattened)
 
-            for i in pos_y:
-                contorno = self.z[i, :]  # rugosidad concreta
-                contorno = gaussian_filter(contorno, sigma=1)
-                contorno_y = np.full_like(contorno_x, i * self.dpixel)
-                ax.plot(contorno_x, contorno_y, contorno, label=f'Perfil en y={i}')
-            ax.set_title('Perfiles de Rugosidad en 3D')
-            ax.set_xlabel('X (mm)')
-            ax.set_ylabel('Y (mm)')
-            ax.set_zlabel('Z (altura en mm)')
-            plt.legend()
-            plt.show()
+        # Encuentra los 5 picos más altos y los 5 valles más profundos
+        if len(picos) >= 5 and len(valles) >= 5:
+            picos_importantes = picos[np.argsort(z_flattened[picos])[-5:]]
+            valles_importantes = valles[np.argsort(-z_flattened[valles])[-5:]]
+            Sp = np.max(z_flattened[picos_importantes])
+            Sv = np.min(z_flattened[valles_importantes])
+            Sz = Sp - Sv
+            S10z = (np.sum(z_flattened[picos_importantes]) - np.sum(z_flattened[valles_importantes]))/5
+        else:
+            Sp, Sv, Sz, S10z = np.nan, np.nan, np.nan, np.nan  # En caso de no tener suficientes picos o valles
 
-    def muchos_contorno_x(self, ncontorno):
-        pos_y = np.random.randint(0, self.z.shape[0], ncontorno)
-        pos_y = np.sort(pos_y)
+        # Calcula la asimetría del perfil
+        Ssk = (np.sum((z_flattened - np.mean(z_flattened)) ** 3) / len(z_flattened)) / (Sq ** 3)
 
-        # contornos_fig=plt.figure(figsize=(20, 10))
-        contornos_fig = plt.figure()
-        ax = contornos_fig.add_subplot(111, projection='3d')
+        # Impresión de resultados
+        print('Análisis de Rugosidades para la superficie completa:\n----------------')
+        print(f'Sa (Media aritmética de las alturas absolutas): {Sa}')
+        print(f'Sq (Raíz cuadrada del promedio de los cuadrados): {Sq}')
+        print(f'Sp (Altura máxima del pico): {Sp}')
+        print(f'Sv (Profundidad máxima del valle): {Sv}')
+        print(f'Sz (Altura máxima): {Sz}')
+        print(f'S10z (Suma de las alturas de los 5 picos y valles más prominentes): {S10z}')
+        print(f'Ssk (Asimetría): {Ssk}')
 
-        contorno_x = np.arange(self.z.shape[1]) * self.dpixel
+        return Sa, Sq, Sp, Sv, Sz, S10z, Ssk
+    # def parametros3d(self,z):
+    #     # Calcula parámetros de rugosidad
+    #     Sa = np.mean(np.abs(z - np.mean(z)))
+    #     Sq = np.sqrt(np.mean((z - np.mean(z)) ** 2))
+    #
+    #     # Usar filtros para encontrar picos y valles
+    #     footprint = np.array([[1, 1, 1],
+    #                           [1, 0, 1],
+    #                           [1, 1, 1]])  # Define la vecindad para la comparación
+    #
+    #     local_max = maximum_filter(z, footprint=footprint) == z  # Picos locales
+    #     local_min = minimum_filter(z, footprint=footprint) == z  # Valles locales
+    #
+    #     picos_importantes = np.where(local_max)
+    #     valles_importantes = np.where(local_min)
+    #
+    #     # Convertir índices a lineales para seleccionar los top 5
+    #     linear_picos = np.ravel_multi_index(picos_importantes, dims=z.shape)
+    #     linear_valles = np.ravel_multi_index(valles_importantes, dims=z.shape)
+    #
+    #     if len(linear_picos) >= 5 and len(linear_valles) >= 5:
+    #         sorted_picos = np.argsort(z.ravel()[linear_picos])[-5:]
+    #         sorted_valles = np.argsort(-z.ravel()[linear_valles])[-5:]
+    #
+    #         # Índices de los 5 picos y valles más importantes
+    #         picos_importantes = np.unravel_index(linear_picos[sorted_picos], shape=z.shape)
+    #         valles_importantes = np.unravel_index(linear_valles[sorted_valles], shape=z.shape)
+    #
+    #         Sp = np.max(z[picos_importantes])
+    #         Sv = np.min(z[valles_importantes])
+    #         Sz = Sp - Sv
+    #         S10z = (np.sum(z[picos_importantes]) - np.sum(z[valles_importantes]))/5
+    #     else:
+    #         Sp, Sv, Sz, S10z = np.nan, np.nan, np.nan, np.nan  # En caso de no tener suficientes picos o valles
+    #
+    #     # Calcula la asimetría del perfil
+    #     Ssk = (np.sum((z.ravel() - np.mean(z.ravel())) ** 3) / len(z.ravel())) / (Sq ** 3)
+    #
+    #     # Impresión de resultados
+    #     print('Análisis de Rugosidades para la superficie completa:\n----------------')
+    #     print(f'Sa (Media aritmética de las alturas absolutas): {Sa}')
+    #     print(f'Sq (Raíz cuadrada del promedio de los cuadrados): {Sq}')
+    #     print(f'Sp (Altura máxima del pico): {Sp}')
+    #     print(f'Sv (Profundidad máxima del valle): {Sv}')
+    #     print(f'Sz (Altura máxima): {Sz}')
+    #     print(f'S10z (Suma de las alturas de los 5 picos y valles más prominentes): {S10z}')
+    #     print(f'Ssk (Asimetría): {Ssk}')
+    def plot_rugosidad3d(self,z):
+        fig = plt.figure(figsize=(14, 6))
 
-        for i in pos_y:
-            contorno = self.z[i, :]  # rugosidad concreta
-            contorno = gaussian_filter(contorno, sigma=1)
-            contorno_y = np.full_like(contorno_x, i * self.dpixel)
-            ax.plot(contorno_x, contorno_y, contorno, label=f'Perfil en y={i}')
-        ax.set_title('Perfiles de Rugosidad en 3D')
-        ax.set_xlabel('X (mm)')
-        ax.set_ylabel('Y (mm)')
-        ax.set_zlabel('Z (altura en mm)')
-        plt.legend()
+        # Gráfico 3D de la superficie
+        ax1 = fig.add_subplot(121, projection='3d')
+        X, Y = np.meshgrid(np.arange(z.shape[1]), np.arange(z.shape[0]))
+        ax1.plot_surface(X, Y, z, cmap='viridis')
+        ax1.set_title('Superficie Topográfica')
+        ax1.set_xlabel('X (μm)')
+        ax1.set_ylabel('Y (μm)')
+        ax1.set_zlabel('Z (μm)')
+
+        # Cálculo de parámetros de rugosidad
+        Sa, Sq, Sz, Sp, Sv, S10z, Ssk = self.rugosidad_sulperficial(z)
+
+        # Gráfico de barras de los parámetros de rugosidad
+        ax2 = fig.add_subplot(122)
+        parameters = ['Sa', 'Sq', 'Sz', 'Sp', 'Sv', 'S10z', 'Ssk']
+        values = [Sa, Sq, Sz, Sp, Sv, S10z, Ssk]
+        ax2.barh(parameters, values, color='skyblue')
+        ax2.set_title('Parámetros de Rugosidad')
+        ax2.set_xlabel('Valor (μm)')
+        ax2.grid(True)
+
+        plt.tight_layout()
         plt.show()
 
+    def parametros2D(self,z):
+        perfil = np.mean(z, axis=1)  # Perfil medio a lo largo de un eje
+        l = len(perfil)  # Longitud del perfil
+
+        # Calculando Ra y Rq respecto a la línea base original
+        Ra = np.mean(np.abs(perfil - np.mean(perfil)))
+        Rq = np.sqrt(np.mean((perfil - np.mean(perfil)) ** 2))
+
+        # Identificación de picos y valles
+        picos, _ = find_peaks(perfil,distance=80)
+        valles, _ = find_peaks(-perfil,distance=80)
+
+        # Top 5 picos y valles
+        picos_importantes = picos[np.argsort(perfil[picos])[-5:]]
+        valles_importantes = valles[np.argsort(-perfil[valles])[-5:]]
+
+        # Rp, Rv, Rz, y R10z
+        Rp = np.max(perfil[picos_importantes])
+        Rv = np.min(perfil[valles_importantes])
+        Rz = np.abs(Rp) + np.abs(Rv)
+        R10z = np.sum(perfil[picos_importantes] - perfil[valles_importantes]) / 5
+
+        # Asimetría (Rsk)
+        Rsk = (np.sum((perfil - np.mean(perfil)) ** 3) / len(perfil)) / (Rq ** 3)
+
+        # widths = np.diff(np.sort(np.concatenate([picos_importantes, valles_importantes])))
+        # RSm = np.mean(widths)
+
+        # print('valeesimportantes',valles_importantes)
+        # print('picosimportantes',picos_importantes)
+        # anchovalle=np.diff(np.sort(valles_importantes[-2:]))
+        # anchopico=np.diff(np.sort(picos_importantes))
+
+        anchovalle = np.diff(np.sort(valles))
+        anchopico = np.diff(np.sort(picos))
+        # print('anchivalle',anchovalle)
+        # print('anchopico',anchopico)
+        anchovalles=np.mean(anchovalle)
+        anchopicos=np.mean(anchopico)
+
+        print('Análisis de Rugosidades para el perfil medio:\n----------------')
+        print(f'Ra (Desviación aritmética media): {Ra}')
+        print(f'Rq (RMS): {Rq}')
+        print(f'Rp (Máximo): {Rp}')
+        print(f'Rv (Mínimo): {Rv}')
+        print(f'Rz (Altura máxima): {Rz}')
+        print(f'R10z (Media de altura de 5 picos y 5 valles): {R10z}')
+        print(f'Rsk (Asimetría): {Rsk}')
+        print(f'Anchura por valles: {anchovalles}')
+        print(f'Anchura por picos: {anchopicos}')
+
+        return perfil, Ra, Rq, Rp, Rv, Rz, R10z, Rsk, picos_importantes, valles_importantes
+
+    def plot_rugo2d(self, z):
+        perfil, Ra, Rq, Rp, Rv, Rz, R10z, Rsk, picos_importantes, valles_importantes = self.parametros2D(z)
+        linea_base = np.mean(perfil)
+        # hay q escalar a la unidad
+        picos_importantes = picos_importantes * self.dpixel
+        valles_importantes = valles_importantes * self.dpixel
+
+
+        plt.figure(figsize=(15, 6))
+        plt.plot(np.arange(len(perfil)) * self.dpixel, perfil, label='Perfil')
+        plt.scatter(picos_importantes, perfil[picos_importantes], marker='x', color='red', s=100,
+                    label='5 Picos')
+        plt.scatter(valles_importantes, perfil[valles_importantes], marker='o', color='blue', s=100,
+                    label='5 Valles')
+
+        # Rv y Rp
+        max_pico = np.argmax(perfil[picos_importantes])
+        min_valle = np.argmin(perfil[valles_importantes])
+        plt.vlines(x=picos_importantes[max_pico], ymin=linea_base, ymax=perfil[picos_importantes[max_pico]],
+                   color='red', linestyle='--', linewidth=1.5, label=f'Rp = {Rp:.2f}')
+        plt.vlines(x=valles_importantes[min_valle], ymin=linea_base, ymax=perfil[valles_importantes[min_valle]],
+                   color='blue', linestyle='--', linewidth=1.5, label=f'Rv = {Rv:.2f}')
+
+        # Líneas de Ra y Rq
+        plt.axhline(y=Ra, color='green', linestyle='--', label=f'Ra = {Ra:.2f}')
+        plt.axhline(y=Rq, color='purple', linestyle='--', label=f'Rq = {Rq:.2f}')
+        plt.axhline(y=linea_base, color='black', linestyle='-', label=f'Media')
+
+
+        # plt.plot([], [], ' ', label=f'RSm = {RSm:.2f}')
+
+        # Agregar más descripciones
+        plt.plot([], [], ' ', label=f'Rz = {Rz:.2f}')
+        plt.plot([], [], ' ', label=f'R10z = {R10z:.2f}')
+        plt.plot([], [], ' ', label=f'Rsk = {Rsk:.2f}')
+
+
+        plt.xlabel('x (µm)',fontsize=18)
+        plt.ylabel('z (µm)',fontsize=18)
+        plt.xticks(fontsize=12)
+        plt.yticks(fontsize=12)
+        plt.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=12)
+        # plt.legend()
+        plt.grid(True)
+        plt.show()
 
 class Histograma:
     def __init__(self,datos):
@@ -1592,8 +1689,8 @@ class Histograma:
 #              'right': 'calibrado/0_4-R.BMP', 'textura': 'calibrado/0_4-S.BMP'} #son 960 x 1280 pixeles
 'averrr_--> pa abajo'
 'la 1 del tfg!!!!!!'
-img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'left': 'calibrado/0_4-R.BMP',
-             'right': 'calibrado/0_4-L.BMP', 'textura': 'calibrado/0_4-S.BMP'}
+img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'left': 'calibrado/0_4-L.BMP',
+             'right': 'calibrado/0_4-R.BMP', 'textura': 'calibrado/0_4-S.BMP'}
 
 # img_rutas = {'top': 'calibrado/04P_T.BMP', 'bottom': 'calibrado/04P_B.BMP', 'left': 'calibrado/04P_L.BMP',
 #              'right': 'calibrado/04P_R.BMP', 'textura': 'calibrado/04P_S.BMP'}
@@ -1607,8 +1704,11 @@ img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'lef
 #              'right': 'calibrado/0_6-R.BMP', 'textura': 'calibrado/0_6-S.BMP'}
 
 'hacia abajo'
-# img_rutas = {'top': 'calibrado/0_6T.BMP', 'bottom': 'calibrado/0_6-B.BMP', 'left': 'calibrado/0_6-R.BMP',
-#              'right': 'calibrado/0_-6-L.BMP', 'textura': 'calibrado/0_6-S.BMP'}
+# img_rutas = {'top': 'calibrado/0_6-B.BMP', 'bottom': 'calibrado/0_6-T.BMP', 'left': 'calibrado/0_6-R.BMP',
+#              'right': 'calibrado/0_6-L.BMP', 'textura': 'calibrado/0_6-S.BMP'}
+
+# img_rutas = {'top': 'calibrado/0_6-B.BMP', 'bottom': 'calibrado/0_6-T.BMP', 'left': 'calibrado/0_6-L.BMP',
+#              'right': 'calibrado/0_6-R.BMP', 'textura': 'calibrado/0_6-S.BMP'}
 
 
 # img_rutas = {'top': 'imagenes/4-C-B.BMP', 'bottom': 'imagenes/4-C-T.BMP', 'left': 'imagenes/4-C-L.BMP',
@@ -1641,6 +1741,278 @@ img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'lef
 # perfi=contornear.pilacontornos_x(20)
 
 
+# # 04 calibrada
+# img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'left': 'calibrado/0_4-L.BMP',
+#              'right': 'calibrado/0_4-R.BMP', 'textura': 'calibrado/0_4-S.BMP'}
+
+# 06 q no se calibro...
+# img_rutas = {'top': 'calibrado/0_6-T.BMP', 'bottom': 'calibrado/0_6-B.BMP', 'left': 'calibrado/0_6-L.BMP',
+#              'right': 'calibrado/0_6-R.BMP', 'textura': 'calibrado/0_6-S.BMP'}
+
+
+# img_rutas = {'top': 'imagenes/4-C-B.BMP', 'bottom': 'imagenes/4-C-T.BMP', 'left': 'imagenes/4-C-L.BMP',
+#              'right': 'imagenes/4-C-R.BMP', 'textura': 'imagenes/4-C-S.BMP'}
+
+
+# img_rutas = {'top': 'imagenes/6-C-B.BMP', 'bottom': 'imagenes/6-C-T.BMP', 'left': 'imagenes/6-C-R.BMP',
+#              'right': 'imagenes/6-C-L.BMP', 'textura': 'imagenes/6-C-S.BMP'}
+# img_rutas = {'top': 'imagenes/6M-C-B.BMP', 'bottom': 'imagenes/6M-C-T.BMP', 'left': 'imagenes/6M-C-L.BMP',
+#               'right': 'imagenes/6M-C-R.BMP', 'textura': 'imagenes/6M-C-S.BMP'}
+
+
+
+
+# matplotlib.use('TkAgg')
+
+'lo normal vaya ajajasajaj'
+'''
+cargar = Cargarimagenes(img_rutas)
+cargar.upload_img(img_rutas)
+# histograma = Histograma(cargar)
+reco= Reconstruccion(cargar)
+sdx,sdy = reco.calculo_gradientes(1.1112,1,eps=1e-5, ver=False)
+
+m,n=sdx.shape
+Lx=reco.ope_dif2(n)
+Ly=reco.ope_dif2(m)
+Sx = reco.segundadif(n)
+Sy = reco.segundadif(m)
+
+
+ztiki,_=reco.reg_tikhonov(sdx,sdy,Lx,Ly,Sx,Sy,lamb=0.1)
+# ztiki=reco.corregir_polinomio(ztiki)
+
+
+min=np.min(ztiki)
+min_index=np.unravel_index(np.argmin(ztiki),ztiki.shape)
+max=np.max(ztiki)
+max_index=np.unravel_index(np.argmax(ztiki),ztiki.shape)
+print("El valor mínimo es:", min)
+print("El índice del valor mínimo es:", min_index)
+print("El valor máximo es:", max)
+print("El índice del valor máximo es:", max_index)
+print('El valor en el borde es:',ztiki[0,0])
+
+
+reco.plot_superficie(ztiki,False)
+
+# contornear = Contornos(reco)
+# contornear.parametros3d(ztiki)
+# contornear.plot_rugo2d(ztiki)
+
+'''
+'-----------------------------------------------------------'
+'------------------------RUGOSIDADES------------------------'
+'-----------------------------------------------------------'
+'''
+img_rutas04 = {'top': 'imagenes/4-C-B.BMP', 'bottom': 'imagenes/4-C-T.BMP', 'left': 'imagenes/4-C-L.BMP',
+             'right': 'imagenes/4-C-R.BMP', 'textura': 'imagenes/4-C-S.BMP'}
+
+
+cargar = Cargarimagenes(img_rutas04)
+cargar.upload_img(img_rutas04)
+# histograma = Histograma(cargar)
+reco= Reconstruccion(cargar)
+reco.dpixel=1.9853
+sdx,sdy = reco.calculo_gradientes(1.1112,1,eps=1e-5, ver=False)
+
+m,n=sdx.shape
+Lx=reco.ope_dif2(n)
+Ly=reco.ope_dif2(m)
+Sx = reco.segundadif(n)
+Sy = reco.segundadif(m)
+
+
+z04,_=reco.reg_tikhonov(sdx,sdy,Lx,Ly,Sx,Sy,lamb=0.1)
+z04=reco.corregir_polinomio(z04)
+
+
+reco.plot_superficie(z04,False)
+
+contornear = Contornos(reco)
+contornear.plot_rugo2d(z04)
+contornear.parametros2D(z04)
+contornear.parametros3d(z04)
+
+
+img_rutas06 = {'top': 'imagenes/6-C-B.BMP', 'bottom': 'imagenes/6-C-T.BMP', 'left': 'imagenes/6-C-R.BMP',
+             'right': 'imagenes/6-C-L.BMP', 'textura': 'imagenes/6-C-S.BMP'}
+
+cargar = Cargarimagenes(img_rutas06)
+cargar.upload_img(img_rutas06)
+reco= Reconstruccion(cargar)
+reco.dpixel=1.9853
+sdx,sdy = reco.calculo_gradientes(1.1112,1,eps=1e-5, ver=False)
+
+z06,_=reco.reg_tikhonov(sdx,sdy,Lx,Ly,Sx,Sy,lamb=0.1)
+z06=reco.corregir_polinomio(z06)
+
+reco.plot_superficie(z06,False)
+contornear = Contornos(reco)
+contornear.plot_rugo2d(z06)
+contornear.parametros2D(z06)
+contornear.parametros3d(z06)
+
+
+img_rutas06m = {'top': 'imagenes/6M-C-B.BMP', 'bottom': 'imagenes/6M-C-T.BMP', 'left': 'imagenes/6M-C-L.BMP',
+              'right': 'imagenes/6M-C-R.BMP', 'textura': 'imagenes/6M-C-S.BMP'}
+
+
+cargar = Cargarimagenes(img_rutas06m)
+cargar.upload_img(img_rutas06m)
+reco= Reconstruccion(cargar)
+reco.dpixel=1.9853
+sdx,sdy = reco.calculo_gradientes(1.1112,1,eps=1e-5, ver=False)
+
+z06m,_=reco.reg_tikhonov(sdx,sdy,Lx,Ly,Sx,Sy,lamb=0.1)
+z06m=reco.corregir_polinomio(z06m)
+
+reco.plot_superficie(z06m,False)
+contornear = Contornos(reco)
+contornear.plot_rugo2d(z06m)
+contornear.parametros2D(z06m)
+contornear.parametros3d(z06m)
+'''
+'''
+def obtener_parametros(ruta):
+    cargar = Cargarimagenes(ruta)
+    cargar.upload_img(ruta)
+    reco = Reconstruccion(cargar)
+    reco.dpixel = 1.9853
+    sdx, sdy = reco.calculo_gradientes(1.1112, 1, eps=1e-5, ver=False)
+    m, n = sdx.shape
+    Lx = reco.ope_dif2(n)
+    Ly = reco.ope_dif2(m)
+    Sx = reco.segundadif(n)
+    Sy = reco.segundadif(m)
+    z, _ = reco.reg_tikhonov(sdx, sdy, Lx, Ly, Sx, Sy, lamb=0.1)
+    z = reco.corregir_polinomio(z)
+    reco.plot_superficie(z, False)
+    contornear = Contornos(reco)
+    parametros = contornear.parametros2D(z)
+    return parametros[1:8]  # Extrayendo solo los valores numéricos de los parámetros
+
+# Rutas de imágenes para las diferentes superficies
+rutas = {
+    'Superficie 0.4mm': {'top': 'imagenes/4-C-B.BMP', 'bottom': 'imagenes/4-C-T.BMP', 'left': 'imagenes/4-C-L.BMP', 'right': 'imagenes/4-C-R.BMP', 'textura': 'imagenes/4-C-S.BMP'},
+    'Superficie 0.6mm': {'top': 'imagenes/6-C-B.BMP', 'bottom': 'imagenes/6-C-T.BMP', 'left': 'imagenes/6-C-R.BMP', 'right': 'imagenes/6-C-L.BMP', 'textura': 'imagenes/6-C-S.BMP'},
+    'Superficie 0.6mm Mecanizada': {'top': 'imagenes/6M-C-B.BMP', 'bottom': 'imagenes/6M-C-T.BMP', 'left': 'imagenes/6M-C-L.BMP', 'right': 'imagenes/6M-C-R.BMP', 'textura': 'imagenes/6M-C-S.BMP'}
+}
+
+# Obtener parámetros para cada superficie
+parametros_superficies = {nombre: obtener_parametros(ruta) for nombre, ruta in rutas.items()}
+
+# Nombres de los parámetros
+parametros_labels = ['Ra', 'Rq', 'Rp', 'Rv', 'Rz', 'R10z', 'Rsk']
+
+# Creación del gráfico de barras comparativo
+num_parametros = len(parametros_labels)
+fig, axes = plt.subplots(nrows=num_parametros, figsize=(12, 18), sharex=True)
+
+# Colores para cada superficie
+colores = ['red', 'blue', 'green']
+
+for i, parametro in enumerate(parametros_labels):
+    valores = [parametros_superficies[nombre][i] for nombre in rutas.keys()]
+    for j, valor in enumerate(valores):
+        axes[i].bar(j, valor, color=colores[j], label=f'{list(rutas.keys())[j]}: {valor:.2f}')
+    axes[i].set_title(parametro)
+    axes[i].set_ylabel('Valor')
+
+axes[0].legend(loc='upper right')
+plt.xticks(range(len(rutas)), list(rutas.keys()))
+plt.tight_layout()
+plt.show()
+'''
+
+
+def comparar_rugosidades(superficies, nombres, contorneadores):
+    parametros_labels = ['Ra', 'Rq', 'Rp', '|Rv|', 'Rz', 'R10z']
+    datos = {nombre: [] for nombre in nombres}
+
+    for superficie, contornear, nombre in zip(superficies, contorneadores, nombres):
+        contornear.plot_rugo2d(superficie)
+        _, Ra, Rq, Rp, Rv, Rz, R10z, _, _, _ = contornear.parametros2D(superficie)
+        datos[nombre] = [Ra, Rq, Rp, abs(Rv), Rz, R10z]
+
+    fig, ax = plt.subplots(figsize=(12, 8))
+    bar_width = 0.25
+    index = np.arange(len(parametros_labels))
+
+    for i, nombre in enumerate(nombres):
+        bars = ax.bar(index + i * bar_width, datos[nombre], bar_width, label=f'{nombre}')
+        for bar in bars:
+            yval = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width() / 2, yval, round(yval, 2), va='bottom',ha='center', fontsize=15)
+
+    ax.set_xlabel('Parámetros de Rugosidad', fontsize=24)
+    ax.set_ylabel('Valores', fontsize=20)
+    ax.set_title('Comparación de Rugosidad para Diferentes Superficies', fontsize=25)
+    ax.set_xticks(index + bar_width / 2 * (len(nombres) - 1))
+    ax.set_xticklabels(parametros_labels, fontsize=17)
+    ax.legend(fontsize=17)
+    ax.tick_params(axis='both', which='major', labelsize=17)
+
+    plt.tight_layout()
+    plt.show()
+def comparar_rugosidades_3d(superficies, nombres, contorneadores):
+    parametros_labels = ['Sa', 'Sq', 'Sp', '|Sv|', 'Sz', 'S10z']
+    datos = {nombre: [] for nombre in nombres}
+
+    for superficie, contornear, nombre in zip(superficies, contorneadores, nombres):
+        reco.plot_superficie(superficie,False)
+        Sa, Sq, Sp, Sv, Sz, S10z, _ = contornear.parametros3d(superficie)
+        datos[nombre] = [Sa, Sq, Sp, abs(Sv), Sz, S10z]
+
+    fig, ax = plt.subplots(figsize=(14, 8))
+    bar_width = 0.25
+    index = np.arange(len(parametros_labels))
+
+    for i, nombre in enumerate(nombres):
+        bars = ax.bar(index + i * bar_width, datos[nombre], bar_width, label=f'{nombre}')
+        for bar in bars:
+            yval = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width() / 2, yval, round(yval, 2), va='bottom', ha='center', fontsize=15)
+
+    ax.set_xlabel('Parámetros de Rugosidad', fontsize=20)
+    ax.set_ylabel('Valores', fontsize=20)
+    ax.set_title('Comparación de Rugosidad 3D para Diferentes Superficies', fontsize=25)
+    ax.set_xticks(index + bar_width / 2 * (len(nombres) - 1))
+    ax.set_xticklabels(parametros_labels, fontsize=17)
+    ax.legend(fontsize=17)
+    ax.tick_params(axis='both', which='major', labelsize=17)
+
+    plt.tight_layout()
+    plt.show()
+
+# Procesar cada conjunto de imágenes y comparar
+img_rutas = {
+    '04mm': {'top': 'imagenes/4-C-B.BMP', 'bottom': 'imagenes/4-C-T.BMP', 'left': 'imagenes/4-C-L.BMP',
+             'right': 'imagenes/4-C-R.BMP', 'textura': 'imagenes/4-C-S.BMP'},
+    '06mm': {'top': 'imagenes/6-C-B.BMP', 'bottom': 'imagenes/6-C-T.BMP', 'left': 'imagenes/6-C-R.BMP',
+             'right': 'imagenes/6-C-L.BMP', 'textura': 'imagenes/6-C-S.BMP'},
+    '06mm_mec': {'top': 'imagenes/6M-C-B.BMP', 'bottom': 'imagenes/6M-C-T.BMP', 'left': 'imagenes/6M-C-L.BMP',
+                 'right': 'imagenes/6M-C-R.BMP', 'textura': 'imagenes/6M-C-S.BMP'}
+}
+
+superficies = []
+contorneadores = []
+nombres = ['0.4mm', '0.6mm', '0.6mm Mecanizada']
+
+for key, rutas in img_rutas.items():
+    cargar = Cargarimagenes(rutas)
+    cargar.upload_img(rutas)
+    reco = Reconstruccion(cargar)
+    sdx, sdy = reco.calculo_gradientes(1.1112, 1, eps=1e-5, ver=False)
+    z, _ = reco.reg_tikhonov(sdx, sdy, reco.ope_dif2(sdx.shape[1]), reco.ope_dif2(sdy.shape[0]),
+                             reco.segundadif(sdx.shape[1]), reco.segundadif(sdy.shape[0]), lamb=0.1)
+    z = reco.corregir_polinomio(z)
+    contornear = Contornos(reco)
+    superficies.append(z)
+    contorneadores.append(contornear)
+
+comparar_rugosidades(superficies, nombres, contorneadores)
+comparar_rugosidades_3d(superficies, nombres,contorneadores)
 '-----------------------------------------------------------'
 '-------------MONTECARLO; comparación de tiempos------------'
 '-----------------------------------------------------------'
@@ -1782,6 +2154,7 @@ u_stat, p_value = stats.mannwhitneyu(tiempos_syl, tiempos_hou)
 print("Prueba U de Mann-Whitney:", "U-Statistic:", u_stat, "P-Value:", p_value)
 '''
 
+
 '-------------------------------------------------------------------'
 '--------------------Metodo L-Curve para tikhonov-------------------'
 '-------------------------------------------------------------------'
@@ -1920,11 +2293,11 @@ amplitud_sdx = np.max(sdxorigi) - np.min(sdxorigi)
 amplitud_sdy = np.max(sdyorigi) - np.min(sdyorigi)
 amplitud_gradientes = (amplitud_sdx + amplitud_sdy) / 2
 
-sigmas = np.linspace(0, 0.1 * amplitud_gradientes*255, 10)
+sigmas = np.linspace(0, 0.4 * amplitud_gradientes*255, 40)
 varianzas = sigmas**2
 # varianzas_porcentaje = (varianzas / varianza_gradientes) * 100
 # varianzas_porcentaje=np.arange(0,11,1)
-varianzas_porcentaje=np.linspace(0,10,10)
+varianzas_porcentaje=np.linspace(0,40,40)
 
 print(amplitud_sdx,amplitud_sdy)
 print('amplitud',amplitud_gradientes)
@@ -2103,10 +2476,36 @@ Z_t14,_ = self.reg_tikhonov(sdx,sdy,Lx, Ly, Sx, Sy, lamb=1e-4)
 z_list=[Z_t21, Z_t11,Z_t12, Z_t13,Z_t14]
 z_name = ['λ=0.2','λ=0.1','λ=0.01','λ=0.001','λ=0.0001']
 
-self.plot_rpsd(z_list,z_name)'''
+self.plot_rpsd(z_list,z_name)
+'''
+'-------------------------------------------------'
+'-------------Pequeñas comprobaciones-------------'
+'-------------------------------------------------'
+
+'''
+cargar = Cargarimagenes(img_rutas)
+cargar.upload_img(img_rutas)
+reco= Reconstruccion(cargar)
+n=100
+
+opedif2=reco.ope_dif2(n,1)
+segundadif=reco.segundadif(n)
+
+Ldifmat,Sdifmat=reco.diffmat2(n-1,(0, n - 1))
 
 
+print('opedif2...\n',opedif2)
+print('Ldifmat...\n',Ldifmat)
 
+print('segundadif...\n',segundadif)
+print('Sdifmat...\n',Sdifmat)
+
+mmm=np.allclose(opedif2,Ldifmat,atol=1e-5)
+print(mmm)
+
+mmm2=np.allclose(segundadif,Sdifmat)
+print(mmm2)
+'''
 
 
 

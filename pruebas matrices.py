@@ -1,7 +1,8 @@
+import cv2
 import numpy as np
 from matplotlib import pyplot as plt
 
-
+'''
 def ope_dif(n, h):
 
     D = np.zeros((n, n))
@@ -290,7 +291,19 @@ def segundadif(n):
 
 D=second_difference_matrix(7)
 print(D)
+'''
 
 
+image = cv2.imread('imagenes/4-C-B.BMP', cv2.IMREAD_GRAYSCALE)
+
+# Calcular el Laplaciano
+laplacian = cv2.Laplacian(image, cv2.CV_64F)
+
+print(laplacian.shape)
+
+cv2.imshow('Imagen Original', image)
+cv2.imshow('Laplaciano', laplacian)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
 
 
