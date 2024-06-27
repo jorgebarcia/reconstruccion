@@ -325,10 +325,12 @@ class Reconstruccion:
         self.datos = datos
 
         "Calibración"
-        # self.dpixel = 1 / 251 # piezas bj (primera sesion)
+        self.dpixel = 1 / 251 # piezas bj (primera sesion)
         # self.dpixel = 500/251 # piezas FDM (15 abril)
-        # self.dpixel = 1/0.9598 #um/pixels #calibracion
-        self.dpixel= 1.9853 #um/pixels pa las de rugosidad
+        # self.dpixel = 1/0.9598 #pixels/um #calibracion
+        # self.dpixel=1.9853  #um/pixel ---> FFF
+        # self.dpixel=0.7940  #um/pixel ---> BJ
+        # calibracion (04 --> a'=a*0.853) ! 06 -->
 
         'Gradientes --> siempre activa'
         # self.calculo_gradientes(1,1,eps=1e-5, ver=False) #c=85.36, d=100
@@ -1166,28 +1168,29 @@ class Reconstruccion:
         print(self.dpixel)
 
         axis_1.set_title('Topografia sin textura')
-        # axis_1.set_xlabel('X (mm)')
-        # axis_1.set_ylabel('Y (mm)')
-        # axis_1.set_zlabel('Z (mm)')
+        axis_1.set_xlabel('X (mm)')
+        axis_1.set_ylabel('Y (mm)')
+        axis_1.set_zlabel('Z (mm)')
 
-        axis_1.set_xlabel(r'X $(\mu m)$')
-        axis_1.set_ylabel(r'Y $(\mu m)$')
-        axis_1.set_zlabel(r'Z $(\mu m)$')
+        # axis_1.set_xlabel(r'X $(\mu m)$')
+        # axis_1.set_ylabel(r'Y $(\mu m)$')
+        # axis_1.set_zlabel(r'Z $(\mu m)$')
 
         # axis_1.set_xlim([z.shape[1] * self.dpixel, 0])
         # axis_1.set_ylim([0, z.shape[0] * self.dpixel])
 
         # axis_1.xlim(-self.dpixel, self.dpixel)
         # axis_1.set_zlim(bottom=-40, top=200)
-        axis_1.set_zticks(np.arange(-140, np.max(z), 40))
-
+        # tal=[-5,0,5]
+        # axis_1.set_zticks(tal)
+        #
         axis_1.get_proj = lambda: np.dot(Axes3D.get_proj(axis_1), np.diag([1.0, 1.0, 0.4, 1]))
         axis_1.tick_params(axis='both', which='major', labelsize=7)
         self.z
         mappable = cm.ScalarMappable(cmap=cm.plasma)
         mappable.set_array(z)
-        plt.colorbar(mappable, ax=axis_1, orientation='vertical', label=r'Z $(\mu m)$', shrink=0.5, pad=0.1)
-
+        # plt.colorbar(mappable, ax=axis_1, orientation='vertical', label=r'Z $(\mu m)$', shrink=0.5, pad=0.1)
+        plt.colorbar(mappable, ax=axis_1, orientation='vertical', label='Z (mm)', shrink=0.5, pad=0.1)
         if ver_textura and self.datos.textura is not None:
 
             con_textura = plt.figure()
@@ -1203,16 +1206,16 @@ class Reconstruccion:
             axis_2.plot_surface(x * self.dpixel, y * self.dpixel, z, facecolors=self.datos.textura / 255.0, shade=False)
 
             axis_2.set_title('Topografia con textura')
-            # axis_2.set_xlabel('X (mm)')
-            # axis_2.set_ylabel('Y (mm)')
-            # axis_2.set_zlabel('Z (mm)')
+            axis_2.set_xlabel('X (mm)')
+            axis_2.set_ylabel('Y (mm)')
+            axis_2.set_zlabel('Z (mm)')
 
-            axis_2.set_xlabel(r'X $(\mu m)$')
-            axis_2.set_ylabel(r'Y $(\mu m)$')
-            axis_2.set_zlabel(r'Z $(\mu m)$')
+            # axis_2.set_xlabel(r'X $(\mu m)$')
+            # axis_2.set_ylabel(r'Y $(\mu m)$')
+            # axis_2.set_zlabel(r'Z $(\mu m)$')
             # axis_2.set_zticks(np.arange(-20, 40, 20))
 
-            axis_2.get_proj = lambda: np.dot(Axes3D.get_proj(axis_2), np.diag([1.0, 1.0, 0.4, 1]))
+            axis_2.get_proj = lambda: np.dot(Axes3D.get_proj(axis_2), np.diag([1.0, 1.0, 0.5, 1]))
 
             axis_2.tick_params(axis='both', which='major', labelsize=7)
             # axis_2.secondary_xaxis()
@@ -1222,8 +1225,8 @@ class Reconstruccion:
 
             mappable_gray = cm.ScalarMappable(cmap=cm.gray)
             mappable_gray.set_array(z)
-            plt.colorbar(mappable_gray, ax=axis_2, orientation='vertical', label='Intensidad', shrink=0.5, pad=0.2)
 
+            plt.colorbar(mappable_gray, ax=axis_2, orientation='vertical', label='Z (mm)', shrink=0.5, pad=0.1)
         plt.show()
 
 
@@ -1245,140 +1248,6 @@ class Contornos:
         self.z = Reconstruccion.z
         self.dpixel = Reconstruccion.dpixel
 
-        # self.contornear_x(300)
-        # self.contornear_y(300)
-        # self.muchos_contorno_x(5)
-
-    def contornear_x(self,z, pos_y):
-        # pos_y = 20  # 20 por ejemplo
-        perfil = z[pos_y, :]
-        perfil = gaussian_filter(perfil, sigma=1)
-        ax_x = np.arange(len(perfil)) * self.dpixel
-        # print(len(perfil))
-        'Ra'
-        media_perfil = np.mean(perfil)
-
-        Ra = np.mean(np.abs(
-            perfil - media_perfil))  # rugosidad media aritmetica  -> promedio abs desviaciones a lo largo de la muestra
-        Rmax = np.max(perfil)
-        Rmin = np.min(perfil)
-
-        'Rz'
-        pikos, _ = find_peaks(perfil, distance=70, prominence=0.2)
-        minimos, _ = find_peaks(-perfil, distance=95, prominence=0.2)
-
-        pikos_val = perfil[pikos]  # valores nominales pikkos
-        minimos_val = perfil[minimos]  # valores nominales minimos
-
-        # np.argsort(pikos_alturas) --> nos devuelve un array =shape que tiene: [0]- mas bajo....[-1] mas alto
-        # nos movemos en el espacio de indices de pikos_val
-        pikos_5 = pikos[np.argsort(pikos_val)[-5:]]
-        minimos_5 = minimos[np.argsort(minimos_val)[-5:]]
-
-        # pasamos al espacio de indices de perfil a traves del orden hecho
-        R10z = np.sum(np.abs(perfil[pikos_5])) / pikos_5.size + np.sum(
-            np.abs(perfil[minimos_5])) / minimos_5.size  # por si acaso no hubiese 5 picos
-
-        # ploteamos:
-        contorno = plt.figure(figsize=(10,4))
-        ax = contorno.add_subplot(111)
-
-        ax.plot(ax_x, perfil, '#4682B4', label=f'Contorno en y={pos_y}')
-        ax.plot(ax_x[pikos_5], perfil[pikos_5], "x", color='red', label='Liberadores de Tensiones')
-        ax.plot(ax_x[minimos_5], perfil[minimos_5], "x", color='k', label='Generadores de Tensiones')
-
-        ax.hlines(Rmax, ax_x[0], ax_x[-1], '#FF4500', '--', label='Rmax')
-        ax.hlines(Rmin, ax_x[0], ax_x[-1], '#FF4500', '--', label='Rmin')
-        ax.hlines(media_perfil, ax_x[0], ax_x[-1], '#FFD700', '--', label='Media')
-        ax.hlines(media_perfil + Ra, ax_x[0], ax_x[-1], 'g', '--', label='Desviacion estandar')
-        ax.hlines(media_perfil - Ra, ax_x[0], ax_x[-1], 'g', '--')
-
-        ax.text(ax_x[300], Rmax, f'{Rmax:.2f}', va='center', ha='right', backgroundcolor='w')
-        ax.text(ax_x[300], Rmin, f'{Rmin:.2f}', va='center', ha='right', backgroundcolor='w')
-        ax.text(ax_x[260], np.mean(perfil), f'{np.mean(perfil):.2f}', va='center', ha='right', backgroundcolor='w')
-
-        # corchete Delta Z
-        alto = 0.05
-        ancho = ax_x[-1] - alto * 2
-        ax.plot([ancho, ancho], [media_perfil, media_perfil + Ra], 'k-', lw=1)
-        ax.plot([ancho - alto / 2, ancho + alto / 2], [media_perfil + Ra, media_perfil + Ra], 'k-', lw=1)
-        ax.plot([ancho - alto / 2, ancho + alto / 2], [media_perfil, media_perfil], 'k-', lw=1)
-        ax.text(ancho + alto, media_perfil + Ra / 2, f'Δz={Ra:.2f}', va='center', ha='left', backgroundcolor='w')
-        ax.legend()
-
-        plt.show()
-
-    def contornear_y(self,z, pos_x):
-        # pos_y = 20  # 20 por ejemplo
-        perfil = z[:, pos_x]
-        perfil = gaussian_filter(perfil, sigma=1)
-        ax_x = np.arange(len(perfil)) * self.dpixel
-
-        'Ra'
-        media_perfil = np.mean(perfil)
-
-        Ra = np.mean(np.abs(perfil - media_perfil))  # rugosidad media aritmetica  -> promedio abs desviaciones a lo largo de la muestra
-        Rmax = np.max(perfil)
-        Rmin = np.min(perfil)
-
-        'Rz'
-        pikos, _ = find_peaks(perfil, distance=70, prominence=0.2)
-        minimos, _ = find_peaks(-perfil, distance=95, prominence=0.2)
-
-        pikos_val = perfil[pikos]  # valores nominales pikkos
-        minimos_val = perfil[minimos]  # valores nominales minimos
-
-        # np.argsort(pikos_alturas) --> nos devuelve un array =shape que tiene: [0]- mas bajo....[-1] mas alto
-        pikos_5 = pikos[np.argsort(pikos_val)[-5:]]
-        minimos_5 = minimos[np.argsort(minimos_val)[-5:]]
-
-
-        Rz = np.sum(np.abs(perfil[pikos_5])) / pikos_5.size + np.sum(
-            np.abs(perfil[minimos_5])) / minimos_5.size  # por si acaso no hubiese 5 picos
-
-        # ploteamos:
-        contorno = plt.figure(figsize=(12, 3))
-        ax = contorno.add_subplot(111)
-
-        ax.plot(ax_x, perfil, '#4682B4', label=f'Contorno en y={pos_x}')
-        ax.plot(ax_x[pikos_5], perfil[pikos_5], "x", color='red', label='Liberadores de Tensiones')
-        ax.plot(ax_x[minimos_5], perfil[minimos_5], "x", color='k', label='Generadores de Tensiones')
-
-        ax.hlines(Rmax, ax_x[0], ax_x[-1], '#FF4500', '--', label='Rmax')
-        ax.hlines(Rmin, ax_x[0], ax_x[-1], '#FF4500', '--', label='Rmin')
-        ax.hlines(media_perfil, ax_x[0], ax_x[-1], '#FFD700', '--', label='Media')
-        ax.hlines(media_perfil + Ra, ax_x[0], ax_x[-1], 'g', '--', label='Desviacion estandar')
-        ax.hlines(media_perfil - Ra, ax_x[0], ax_x[-1], 'g', '--')
-
-        ax.text(ax_x[300], Rmax, f'{Rmax:.2f}', va='center', ha='right', backgroundcolor='w')
-        ax.text(ax_x[300], Rmin, f'{Rmin:.2f}', va='center', ha='right', backgroundcolor='w')
-        ax.text(ax_x[260], np.mean(perfil), f'{np.mean(perfil):.2f}', va='center', ha='right', backgroundcolor='w')
-
-        # corchete dz
-        alto = 0.05
-        ancho = ax_x[-1] - alto * 2
-        ax.plot([ancho, ancho], [media_perfil, media_perfil + Ra], 'k-', lw=1)
-        ax.plot([ancho - alto / 2, ancho + alto / 2], [media_perfil + Ra, media_perfil + Ra], 'k-', lw=1)
-        ax.plot([ancho - alto / 2, ancho + alto / 2], [media_perfil, media_perfil], 'k-', lw=1)
-        ax.text(ancho + alto, media_perfil + Ra / 2, f'Δz={Ra:.2f}', va='top', ha='right', backgroundcolor='w')
-        # ax.legend()
-        # plt.legend(fontsize='small', loc='upper left', bbox_to_anchor=(1, 1))
-        # plt.legend(fontsize='xx-small')
-        plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
-        plt.tick_params(axis='both', which='major', labelsize=8)
-        plt.title(f'Perfil a lo largo de la posición x= {pos_x}')
-        plt.xlabel(r'Distancia $(\mu m)$')
-        plt.ylabel(r'Altura $(\mu m)$')
-        plt.show()
-
-        print('\n Rugosidades: \n ------------- \n')
-        print(f'Contorno del eje y en la posición x={pos_x}')
-        print(f'Ra (media) = {Ra}')
-        print(f'Rmax = {Rmax}')
-        print(f'Rmin = {Rmin}')
-        if Rz is not None: print(f'Rz = {Rz}')
-
-        return perfil,ax_x
 
     def parametros3d(self,z):
         # Calcula parámetros de rugosidad
@@ -1498,7 +1367,7 @@ class Contornos:
         Rq = np.sqrt(np.mean((perfil - np.mean(perfil)) ** 2))
 
         # Identificación de picos y valles
-        picos, _ = find_peaks(perfil,distance=80)
+        picos, _ = find_peaks(perfil,distance=50) #80 de normal ehh
         valles, _ = find_peaks(-perfil,distance=80)
 
         # Top 5 picos y valles
@@ -1542,49 +1411,37 @@ class Contornos:
 
         return perfil, Ra, Rq, Rp, Rv, Rz, R10z, Rsk, picos_importantes, valles_importantes
 
-    def plot_rugo2d(self, z):
+    def plot_rugo2d(self, z, dpixel=1.9853):
         perfil, Ra, Rq, Rp, Rv, Rz, R10z, Rsk, picos_importantes, valles_importantes = self.parametros2D(z)
         linea_base = np.mean(perfil)
-        # hay q escalar a la unidad
-        picos_importantes = picos_importantes * self.dpixel
-        valles_importantes = valles_importantes * self.dpixel
+        print('dpixeeeeeeeeel:',dpixel)
 
+        # Aplicar dpixel a las posiciones de x para los picos y valles
+        x_picos = picos_importantes * dpixel
+        x_valles = valles_importantes * dpixel
 
         plt.figure(figsize=(15, 6))
-        plt.plot(np.arange(len(perfil)) * self.dpixel, perfil, label='Perfil')
-        plt.scatter(picos_importantes, perfil[picos_importantes], marker='x', color='red', s=100,
-                    label='5 Picos')
-        plt.scatter(valles_importantes, perfil[valles_importantes], marker='o', color='blue', s=100,
-                    label='5 Valles')
+        plt.plot(np.arange(len(perfil)) * dpixel, perfil, label='Perfil')  # Aplicar dpixel al eje x del perfil
+        plt.scatter(x_picos, perfil[picos_importantes], marker='x', color='red', s=100, label='5 Picos')
+        plt.scatter(x_valles, perfil[valles_importantes], marker='o', color='blue', s=100, label='5 Valles')
 
-        # Rv y Rp
+        # Solo la línea vertical para el pico y valle más significativos
         max_pico = np.argmax(perfil[picos_importantes])
         min_valle = np.argmin(perfil[valles_importantes])
-        plt.vlines(x=picos_importantes[max_pico], ymin=linea_base, ymax=perfil[picos_importantes[max_pico]],
+        plt.vlines(x=x_picos[max_pico], ymin=linea_base, ymax=perfil[picos_importantes[max_pico]],
                    color='red', linestyle='--', linewidth=1.5, label=f'Rp = {Rp:.2f}')
-        plt.vlines(x=valles_importantes[min_valle], ymin=linea_base, ymax=perfil[valles_importantes[min_valle]],
+        plt.vlines(x=x_valles[min_valle], ymin=linea_base, ymax=perfil[valles_importantes[min_valle]],
                    color='blue', linestyle='--', linewidth=1.5, label=f'Rv = {Rv:.2f}')
 
-        # Líneas de Ra y Rq
         plt.axhline(y=Ra, color='green', linestyle='--', label=f'Ra = {Ra:.2f}')
         plt.axhline(y=Rq, color='purple', linestyle='--', label=f'Rq = {Rq:.2f}')
         plt.axhline(y=linea_base, color='black', linestyle='-', label=f'Media')
 
-
-        # plt.plot([], [], ' ', label=f'RSm = {RSm:.2f}')
-
-        # Agregar más descripciones
-        plt.plot([], [], ' ', label=f'Rz = {Rz:.2f}')
-        plt.plot([], [], ' ', label=f'R10z = {R10z:.2f}')
-        plt.plot([], [], ' ', label=f'Rsk = {Rsk:.2f}')
-
-
-        plt.xlabel('x (µm)',fontsize=18)
-        plt.ylabel('z (µm)',fontsize=18)
+        plt.xlabel('Y (µm)', fontsize=18)
+        plt.ylabel('Z (µm)', fontsize=18)
         plt.xticks(fontsize=12)
         plt.yticks(fontsize=12)
         plt.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=12)
-        # plt.legend()
         plt.grid(True)
         plt.show()
 
@@ -1681,7 +1538,7 @@ class Histograma:
 
 # img_rutas = {'top': 'imagenes/CIRC1_T.BMP','bottom': 'imagenes/CIRC1_B.BMP','left': 'imagenes/CIRC1_L.BMP','right': 'imagenes/CIRC1_R.BMP','textura': 'imagenes/CIRC1.BMP'}
 
-# img_rutas = {'top': 'imagenes/RUEDA1_T.BMP','bottom': 'imagenes/RUEDA1_B.BMP','left': 'imagenes/RUEDA1_L.BMP','right': 'imagenes/RUEDA1_R.BMP','textura': 'imagenes/RUEDA1_S.BMP'}
+img_rutas = {'top': 'imagenes/RUEDA1_T.BMP','bottom': 'imagenes/RUEDA1_B.BMP','left': 'imagenes/RUEDA1_L.BMP','right': 'imagenes/RUEDA1_R.BMP','textura': 'imagenes/RUEDA1_S.BMP'}
 # img_rutas = {'top': 'imagenes/RUEDA3_T.BMP','bottom': 'imagenes/RUEDA3_B.BMP','left': 'imagenes/RUEDA3_L.BMP','right': 'imagenes/RUEDA3_R.BMP','textura': 'imagenes/RUEDA3.BMP'}
 
 'pa arriba'
@@ -1689,8 +1546,8 @@ class Histograma:
 #              'right': 'calibrado/0_4-R.BMP', 'textura': 'calibrado/0_4-S.BMP'} #son 960 x 1280 pixeles
 'averrr_--> pa abajo'
 'la 1 del tfg!!!!!!'
-img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'left': 'calibrado/0_4-L.BMP',
-             'right': 'calibrado/0_4-R.BMP', 'textura': 'calibrado/0_4-S.BMP'}
+# img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'left': 'calibrado/0_4-L.BMP',
+#              'right': 'calibrado/0_4-R.BMP', 'textura': 'calibrado/0_4-S.BMP'}
 
 # img_rutas = {'top': 'calibrado/04P_T.BMP', 'bottom': 'calibrado/04P_B.BMP', 'left': 'calibrado/04P_L.BMP',
 #              'right': 'calibrado/04P_R.BMP', 'textura': 'calibrado/04P_S.BMP'}
@@ -1714,10 +1571,11 @@ img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'lef
 # img_rutas = {'top': 'imagenes/4-C-B.BMP', 'bottom': 'imagenes/4-C-T.BMP', 'left': 'imagenes/4-C-L.BMP',
 #              'right': 'imagenes/4-C-R.BMP', 'textura': 'imagenes/4-C-S.BMP'}
 
-
-
-
-# cargar = Cargarimagenes(img_rutas)
+matplotlib.use('TkAgg')
+#
+#
+cargar = Cargarimagenes(img_rutas)
+cargar.upload_img(img_rutas)
 # histograma = Histograma(cargar)
 # procesar = Procesarimagenes(cargar)
 # ecualizar = Ecualizacion(cargar)
@@ -1728,7 +1586,19 @@ img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'lef
 # procesar = Procesarimagenes(cargar)
 #
 #
-# reconstruir = Reconstruccion(cargar)
+reco = Reconstruccion(cargar)
+sdx,sdy=reco.calculo_gradientes(1.1112,1)
+#
+m,n=sdx.shape
+Lx=reco.ope_dif2(n)
+Ly=reco.ope_dif2(m)
+Sx = reco.segundadif(n)
+Sy = reco.segundadif(m)
+#
+#
+ztiki,_=reco.reg_tikhonov(sdx,sdy,Lx,Ly,Sx,Sy,lamb=0.1)
+# ztiki=reco.corregir_polinomio(ztiki)
+reco.plot_superficie(ztiki,True)
 
 # contornear = Contornos(reconstruir)
 # perfil=contornear.contornear_y(pos_x=480)
@@ -1759,13 +1629,13 @@ img_rutas = {'top': 'calibrado/0_4-T.BMP', 'bottom': 'calibrado/0_4-B.BMP', 'lef
 # img_rutas = {'top': 'imagenes/6M-C-B.BMP', 'bottom': 'imagenes/6M-C-T.BMP', 'left': 'imagenes/6M-C-L.BMP',
 #               'right': 'imagenes/6M-C-R.BMP', 'textura': 'imagenes/6M-C-S.BMP'}
 
+'''
+matplotlib.use('TkAgg')
 
-
-
-# matplotlib.use('TkAgg')
+img_rutas = {'top': 'imagenes/RUEDA3_T.BMP','bottom': 'imagenes/RUEDA3_B.BMP','left': 'imagenes/RUEDA3_L.BMP','right': 'imagenes/RUEDA3_R.BMP','textura': 'imagenes/RUEDA3.BMP'}
 
 'lo normal vaya ajajasajaj'
-'''
+
 cargar = Cargarimagenes(img_rutas)
 cargar.upload_img(img_rutas)
 # histograma = Histograma(cargar)
@@ -1780,7 +1650,7 @@ Sy = reco.segundadif(m)
 
 
 ztiki,_=reco.reg_tikhonov(sdx,sdy,Lx,Ly,Sx,Sy,lamb=0.1)
-# ztiki=reco.corregir_polinomio(ztiki)
+ztiki=reco.corregir_polinomio(ztiki)
 
 
 min=np.min(ztiki)
@@ -1796,158 +1666,39 @@ print('El valor en el borde es:',ztiki[0,0])
 
 reco.plot_superficie(ztiki,False)
 
-# contornear = Contornos(reco)
-# contornear.parametros3d(ztiki)
-# contornear.plot_rugo2d(ztiki)
-
+contornear = Contornos(reco)
+contornear.parametros3d(ztiki)
+contornear.plot_rugo2d(ztiki,dpixel=0.7940)
 '''
+
 '-----------------------------------------------------------'
 '------------------------RUGOSIDADES------------------------'
 '-----------------------------------------------------------'
+
+# matplotlib.use('TkAgg')
 '''
-img_rutas04 = {'top': 'imagenes/4-C-B.BMP', 'bottom': 'imagenes/4-C-T.BMP', 'left': 'imagenes/4-C-L.BMP',
-             'right': 'imagenes/4-C-R.BMP', 'textura': 'imagenes/4-C-S.BMP'}
-
-
-cargar = Cargarimagenes(img_rutas04)
-cargar.upload_img(img_rutas04)
-# histograma = Histograma(cargar)
-reco= Reconstruccion(cargar)
-reco.dpixel=1.9853
-sdx,sdy = reco.calculo_gradientes(1.1112,1,eps=1e-5, ver=False)
-
-m,n=sdx.shape
-Lx=reco.ope_dif2(n)
-Ly=reco.ope_dif2(m)
-Sx = reco.segundadif(n)
-Sy = reco.segundadif(m)
-
-
-z04,_=reco.reg_tikhonov(sdx,sdy,Lx,Ly,Sx,Sy,lamb=0.1)
-z04=reco.corregir_polinomio(z04)
-
-
-reco.plot_superficie(z04,False)
-
-contornear = Contornos(reco)
-contornear.plot_rugo2d(z04)
-contornear.parametros2D(z04)
-contornear.parametros3d(z04)
-
-
-img_rutas06 = {'top': 'imagenes/6-C-B.BMP', 'bottom': 'imagenes/6-C-T.BMP', 'left': 'imagenes/6-C-R.BMP',
-             'right': 'imagenes/6-C-L.BMP', 'textura': 'imagenes/6-C-S.BMP'}
-
-cargar = Cargarimagenes(img_rutas06)
-cargar.upload_img(img_rutas06)
-reco= Reconstruccion(cargar)
-reco.dpixel=1.9853
-sdx,sdy = reco.calculo_gradientes(1.1112,1,eps=1e-5, ver=False)
-
-z06,_=reco.reg_tikhonov(sdx,sdy,Lx,Ly,Sx,Sy,lamb=0.1)
-z06=reco.corregir_polinomio(z06)
-
-reco.plot_superficie(z06,False)
-contornear = Contornos(reco)
-contornear.plot_rugo2d(z06)
-contornear.parametros2D(z06)
-contornear.parametros3d(z06)
-
-
-img_rutas06m = {'top': 'imagenes/6M-C-B.BMP', 'bottom': 'imagenes/6M-C-T.BMP', 'left': 'imagenes/6M-C-L.BMP',
-              'right': 'imagenes/6M-C-R.BMP', 'textura': 'imagenes/6M-C-S.BMP'}
-
-
-cargar = Cargarimagenes(img_rutas06m)
-cargar.upload_img(img_rutas06m)
-reco= Reconstruccion(cargar)
-reco.dpixel=1.9853
-sdx,sdy = reco.calculo_gradientes(1.1112,1,eps=1e-5, ver=False)
-
-z06m,_=reco.reg_tikhonov(sdx,sdy,Lx,Ly,Sx,Sy,lamb=0.1)
-z06m=reco.corregir_polinomio(z06m)
-
-reco.plot_superficie(z06m,False)
-contornear = Contornos(reco)
-contornear.plot_rugo2d(z06m)
-contornear.parametros2D(z06m)
-contornear.parametros3d(z06m)
-'''
-'''
-def obtener_parametros(ruta):
-    cargar = Cargarimagenes(ruta)
-    cargar.upload_img(ruta)
-    reco = Reconstruccion(cargar)
-    reco.dpixel = 1.9853
-    sdx, sdy = reco.calculo_gradientes(1.1112, 1, eps=1e-5, ver=False)
-    m, n = sdx.shape
-    Lx = reco.ope_dif2(n)
-    Ly = reco.ope_dif2(m)
-    Sx = reco.segundadif(n)
-    Sy = reco.segundadif(m)
-    z, _ = reco.reg_tikhonov(sdx, sdy, Lx, Ly, Sx, Sy, lamb=0.1)
-    z = reco.corregir_polinomio(z)
-    reco.plot_superficie(z, False)
-    contornear = Contornos(reco)
-    parametros = contornear.parametros2D(z)
-    return parametros[1:8]  # Extrayendo solo los valores numéricos de los parámetros
-
-# Rutas de imágenes para las diferentes superficies
-rutas = {
-    'Superficie 0.4mm': {'top': 'imagenes/4-C-B.BMP', 'bottom': 'imagenes/4-C-T.BMP', 'left': 'imagenes/4-C-L.BMP', 'right': 'imagenes/4-C-R.BMP', 'textura': 'imagenes/4-C-S.BMP'},
-    'Superficie 0.6mm': {'top': 'imagenes/6-C-B.BMP', 'bottom': 'imagenes/6-C-T.BMP', 'left': 'imagenes/6-C-R.BMP', 'right': 'imagenes/6-C-L.BMP', 'textura': 'imagenes/6-C-S.BMP'},
-    'Superficie 0.6mm Mecanizada': {'top': 'imagenes/6M-C-B.BMP', 'bottom': 'imagenes/6M-C-T.BMP', 'left': 'imagenes/6M-C-L.BMP', 'right': 'imagenes/6M-C-R.BMP', 'textura': 'imagenes/6M-C-S.BMP'}
-}
-
-# Obtener parámetros para cada superficie
-parametros_superficies = {nombre: obtener_parametros(ruta) for nombre, ruta in rutas.items()}
-
-# Nombres de los parámetros
-parametros_labels = ['Ra', 'Rq', 'Rp', 'Rv', 'Rz', 'R10z', 'Rsk']
-
-# Creación del gráfico de barras comparativo
-num_parametros = len(parametros_labels)
-fig, axes = plt.subplots(nrows=num_parametros, figsize=(12, 18), sharex=True)
-
-# Colores para cada superficie
-colores = ['red', 'blue', 'green']
-
-for i, parametro in enumerate(parametros_labels):
-    valores = [parametros_superficies[nombre][i] for nombre in rutas.keys()]
-    for j, valor in enumerate(valores):
-        axes[i].bar(j, valor, color=colores[j], label=f'{list(rutas.keys())[j]}: {valor:.2f}')
-    axes[i].set_title(parametro)
-    axes[i].set_ylabel('Valor')
-
-axes[0].legend(loc='upper right')
-plt.xticks(range(len(rutas)), list(rutas.keys()))
-plt.tight_layout()
-plt.show()
-'''
-
-
 def comparar_rugosidades(superficies, nombres, contorneadores):
     parametros_labels = ['Ra', 'Rq', 'Rp', '|Rv|', 'Rz', 'R10z']
     datos = {nombre: [] for nombre in nombres}
 
     for superficie, contornear, nombre in zip(superficies, contorneadores, nombres):
-        contornear.plot_rugo2d(superficie)
+        # contornear.plot_rugo2d(superficie)
         _, Ra, Rq, Rp, Rv, Rz, R10z, _, _, _ = contornear.parametros2D(superficie)
         datos[nombre] = [Ra, Rq, Rp, abs(Rv), Rz, R10z]
 
     fig, ax = plt.subplots(figsize=(12, 8))
     bar_width = 0.25
-    index = np.arange(len(parametros_labels))
+    index = np.arange(len(parametros_labels))*1.1
 
     for i, nombre in enumerate(nombres):
         bars = ax.bar(index + i * bar_width, datos[nombre], bar_width, label=f'{nombre}')
         for bar in bars:
             yval = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width() / 2, yval, round(yval, 2), va='bottom',ha='center', fontsize=15)
+            ax.text(bar.get_x() + bar.get_width() / 2, yval, round(yval, 2), va='bottom',ha='center', fontsize=12)
 
     ax.set_xlabel('Parámetros de Rugosidad', fontsize=24)
     ax.set_ylabel('Valores', fontsize=20)
-    ax.set_title('Comparación de Rugosidad para Diferentes Superficies', fontsize=25)
+    # ax.set_title('Comparación de Rugosidad para Diferentes Superficies', fontsize=25)
     ax.set_xticks(index + bar_width / 2 * (len(nombres) - 1))
     ax.set_xticklabels(parametros_labels, fontsize=17)
     ax.legend(fontsize=17)
@@ -1960,23 +1711,23 @@ def comparar_rugosidades_3d(superficies, nombres, contorneadores):
     datos = {nombre: [] for nombre in nombres}
 
     for superficie, contornear, nombre in zip(superficies, contorneadores, nombres):
-        reco.plot_superficie(superficie,False)
+        # reco.plot_superficie(superficie,False) #con los 4 diccionarios no funsiona, revisar broadcasting
         Sa, Sq, Sp, Sv, Sz, S10z, _ = contornear.parametros3d(superficie)
         datos[nombre] = [Sa, Sq, Sp, abs(Sv), Sz, S10z]
 
     fig, ax = plt.subplots(figsize=(14, 8))
     bar_width = 0.25
-    index = np.arange(len(parametros_labels))
+    index = np.arange(len(parametros_labels))*1.1
 
     for i, nombre in enumerate(nombres):
         bars = ax.bar(index + i * bar_width, datos[nombre], bar_width, label=f'{nombre}')
         for bar in bars:
             yval = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width() / 2, yval, round(yval, 2), va='bottom', ha='center', fontsize=15)
+            ax.text(bar.get_x() + bar.get_width() / 2, yval, round(yval, 2), va='bottom', ha='center', fontsize=12)
 
     ax.set_xlabel('Parámetros de Rugosidad', fontsize=20)
     ax.set_ylabel('Valores', fontsize=20)
-    ax.set_title('Comparación de Rugosidad 3D para Diferentes Superficies', fontsize=25)
+    # ax.set_title('Comparación de Rugosidad 3D para Diferentes Superficies', fontsize=25)
     ax.set_xticks(index + bar_width / 2 * (len(nombres) - 1))
     ax.set_xticklabels(parametros_labels, fontsize=17)
     ax.legend(fontsize=17)
@@ -1992,16 +1743,19 @@ img_rutas = {
     '06mm': {'top': 'imagenes/6-C-B.BMP', 'bottom': 'imagenes/6-C-T.BMP', 'left': 'imagenes/6-C-R.BMP',
              'right': 'imagenes/6-C-L.BMP', 'textura': 'imagenes/6-C-S.BMP'},
     '06mm_mec': {'top': 'imagenes/6M-C-B.BMP', 'bottom': 'imagenes/6M-C-T.BMP', 'left': 'imagenes/6M-C-L.BMP',
-                 'right': 'imagenes/6M-C-R.BMP', 'textura': 'imagenes/6M-C-S.BMP'}
+                 'right': 'imagenes/6M-C-R.BMP', 'textura': 'imagenes/6M-C-S.BMP'},
+    'BJ':{'top': 'imagenes/RUEDA3_T.BMP','bottom': 'imagenes/RUEDA3_B.BMP','left': 'imagenes/RUEDA3_L.BMP','right': 'imagenes/RUEDA3_R.BMP','textura': 'imagenes/RUEDA3.BMP'}
 }
 
 superficies = []
 contorneadores = []
-nombres = ['0.4mm', '0.6mm', '0.6mm Mecanizada']
+nombres = ['0.4mm', '0.6mm', '0.6mm Mecanizada','BJ']
 
 for key, rutas in img_rutas.items():
     cargar = Cargarimagenes(rutas)
     cargar.upload_img(rutas)
+    proseso=Procesarimagenes(cargar)
+    proseso.filtro(5,False)
     reco = Reconstruccion(cargar)
     sdx, sdy = reco.calculo_gradientes(1.1112, 1, eps=1e-5, ver=False)
     z, _ = reco.reg_tikhonov(sdx, sdy, reco.ope_dif2(sdx.shape[1]), reco.ope_dif2(sdy.shape[0]),
@@ -2013,9 +1767,12 @@ for key, rutas in img_rutas.items():
 
 comparar_rugosidades(superficies, nombres, contorneadores)
 comparar_rugosidades_3d(superficies, nombres,contorneadores)
+'''
+
 '-----------------------------------------------------------'
 '-------------MONTECARLO; comparación de tiempos------------'
 '-----------------------------------------------------------'
+
 
 '''
 print('Iniciando test comparativo de tiempos entre la solucion aplicando la transformación de Householder y sin aplicarla')
